@@ -28,6 +28,7 @@
       display: flex;
       gap: 15px;
       margin: 10px 0;
+      flex-wrap: wrap;
     }
     .stat-card {
       background: white;
@@ -68,6 +69,10 @@
     <div class="stat-card">
       <div class="stat-value" id="avgHoursPerDay">-</div>
       <div class="stat-label">Average Hours per Day</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="topProject">-</div>
+      <div class="stat-label">Top Non-Billable Project</div>
     </div>
   </div>
   
@@ -128,7 +133,6 @@
         const dailyHours = {};
         filtered.forEach(r => {
           const project = r.Project || 'Unknown';
-          // Using Start_Date directly as it's already a date string
           const date = r.Start_Date || 'Unknown';
           const duration = r.Duration_decimal_ || 0;
           
@@ -140,10 +144,12 @@
         const total = Object.values(hours).reduce((a, b) => a + b, 0);
         const uniqueDays = Object.keys(dailyHours).length;
         const avgPerDay = uniqueDays ? (total / uniqueDays) : 0;
+        const topProject = chartData[0] || ['None', 0];
 
         // Update statistics
         document.getElementById('totalHours').textContent = total.toFixed(1);
         document.getElementById('avgHoursPerDay').textContent = avgPerDay.toFixed(1);
+        document.getElementById('topProject').textContent = `${topProject[0]} (${topProject[1].toFixed(1)}h)`;
 
         // Create chart
         const ctx = document.getElementById('projectChart').getContext('2d');
@@ -176,7 +182,8 @@
           filteredRecords: filtered.length,
           totalHours: total,
           avgHoursPerDay: avgPerDay,
-          uniqueDays
+          uniqueDays,
+          topProject: topProject[0]
         });
       } catch (err) {
         log({ error: err.message });
