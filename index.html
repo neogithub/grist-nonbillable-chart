@@ -6,183 +6,81 @@
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
   <style>
-    body { 
-      padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    body { padding: 16px; }
+    .debug { 
+      padding: 10px;
+      background: #f5f5f5;
+      margin-bottom: 10px;
+      font-family: monospace;
     }
-    .chart-wrapper {
-      height: 400px;
-      margin: 20px 0;
-    }
-    .filters {
-      margin-bottom: 20px;
-    }
-    select {
-      margin: 5px;
-      padding: 8px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      min-width: 120px;
-    }
-    .summary-stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 15px;
-      margin: 20px 0;
-    }
-    .stat-card {
-      background: white;
-      padding: 15px;
-      border-radius: 8px;
-      border: 1px solid #e0e0e0;
-    }
-    .stat-value {
-      font-size: 24px;
-      font-weight: bold;
-      color: #4CAF50;
-    }
-    .stat-label {
-      font-size: 14px;
-      color: #666;
-      margin-top: 5px;
-    }
+    select { margin: 5px; }
   </style>
 </head>
 <body>
-  <div class="filters">
-    <select id="userFilter">
-      <option value="all">All Users</option>
-    </select>
-    <select id="projectFilter">
-      <option value="all">All Projects</option>
-    </select>
-    <select id="taskFilter">
-      <option value="all">All Tasks</option>
-    </select>
-  </div>
+  <div class="debug" id="debugOutput"></div>
 
-  <div class="summary-stats">
-    <div class="stat-card">
-      <div class="stat-value" id="totalHours">-</div>
-      <div class="stat-label">Total Non-Billable Hours</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value" id="avgHoursPerDay">-</div>
-      <div class="stat-label">Avg Hours/Day</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value" id="topProject">-</div>
-      <div class="stat-label">Top Project</div>
-    </div>
-  </div>
+  <select id="userFilter">
+    <option value="all">All Users</option>
+  </select>
+
+  <div>Hours: <span id="totalHours">-</span></div>
   
-  <div class="chart-wrapper">
+  <div style="height: 400px;">
     <canvas id="projectChart"></canvas>
   </div>
 
   <script>
     let chart = null;
     let currentRecords = [];
-    let currentUser = 'all';
-    let currentProject = 'all';
-    let currentTask = 'all';
 
-    function createChart(records) {
-      // Filter records
-      const filteredRecords = records.filter(r => {
-        const billableMatch = r.Billable === 'No';
-        const userMatch = currentUser === 'all' || r.User === currentUser;
-        const projectMatch = currentProject === 'all' || r.Project === currentProject;
-        const taskMatch = currentTask === 'all' || r.Task === currentTask;
-        return billableMatch && userMatch && projectMatch && taskMatch;
-      });
-      
-      // Calculate project totals and dates
-      const projectHours = {};
-      const dailyHours = {};
-      filteredRecords.forEach(record => {
-        const project = record.Project || 'Unknown';
-        const date = record.Start_Date?.split('T')[0] || 'Unknown';
-        const hours = record.Duration_decimal_ || 0;
-        projectHours[project] = (projectHours[project] || 0) + hours;
-        dailyHours[date] = (dailyHours[date] || 0) + hours;
-      });
-
-      // Calculate summary statistics
-      const totalHours = Object.values(projectHours).reduce((a, b) => a + b, 0);
-      const uniqueDays = Object.keys(dailyHours).length;
-      const avgHoursPerDay = uniqueDays ? totalHours / uniqueDays : 0;
-      const topProject = Object.entries(projectHours)
-        .sort((a, b) => b[1] - a[1])[0];
-
-      // Update summary statistics
-      document.getElementById('totalHours').textContent = totalHours.toFixed(1);
-      document.getElementById('avgHoursPerDay').textContent = avgHoursPerDay.toFixed(1);
-      document.getElementById('topProject').textContent = 
-        topProject ? `${topProject[0]}` : '-';
-
-      // Convert to array and sort by hours
-      const chartData = Object.entries(projectHours)
-        .sort((a, b) => b[1] - a[1]);
-
-      // Create/update chart
-      const ctx = document.getElementById('projectChart').getContext('2d');
-      
-      if (chart) {
-        chart.destroy();
+    function log(msg) {
+      const debug = document.getElementById('debugOutput');
+      if (debug) {
+        debug.textContent = JSON.stringify(msg, null, 2);
       }
-
-      chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: chartData.map(([project]) => project),
-          datasets: [{
-            label: 'Non-Billable Hours',
-            data: chartData.map(([, hours]) => hours),
-            backgroundColor: '#4CAF50'
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          indexAxis: 'y',
-          plugins: {
-            title: {
-              display: true,
-              text: 'Non-Billable Hours by Project'
-            },
-            legend: {
-              display: false
-            }
-          },
-          scales: {
-            x: {
-              title: {
-                display: true,
-                text: 'Hours'
-              }
-            }
-          }
-        }
-      });
+      console.log(msg);
     }
 
-    function updateFilters(records) {
-      const users = [...new Set(records.map(r => r.User))].sort();
-      const projects = [...new Set(records.map(r => r.Project))].sort();
-      const tasks = [...new Set(records.map(r => r.Task))].sort();
-      
-      const userFilter = document.getElementById('userFilter');
-      const projectFilter = document.getElementById('projectFilter');
-      const taskFilter = document.getElementById('taskFilter');
-      
-      userFilter.innerHTML = '<option value="all">All Users</option>';
-      projectFilter.innerHTML = '<option value="all">All Projects</option>';
-      taskFilter.innerHTML = '<option value="all">All Tasks</option>';
-      
-      users.forEach(user => userFilter.add(new Option(user, user)));
-      projects.forEach(project => projectFilter.add(new Option(project, project)));
-      tasks.forEach(task => taskFilter.add(new Option(task, task)));
+    function createChart(records) {
+      try {
+        // Basic data processing
+        const nonBillable = records.filter(r => r.Billable === 'No');
+        const hours = {};
+        
+        nonBillable.forEach(r => {
+          const project = r.Project || 'Unknown';
+          hours[project] = (hours[project] || 0) + (r.Duration_decimal_ || 0);
+        });
+
+        const chartData = Object.entries(hours).sort((a, b) => b[1] - a[1]);
+        const total = Object.values(hours).reduce((a, b) => a + b, 0);
+
+        document.getElementById('totalHours').textContent = total.toFixed(1);
+
+        // Create chart
+        const ctx = document.getElementById('projectChart').getContext('2d');
+        if (chart) chart.destroy();
+
+        chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: chartData.map(([project]) => project),
+            datasets: [{
+              data: chartData.map(([, hours]) => hours),
+              backgroundColor: '#4CAF50'
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false
+          }
+        });
+
+        log({ status: 'Chart created', records: records.length });
+      } catch (err) {
+        log({ error: err.message });
+      }
     }
 
     // Initialize Grist
@@ -190,26 +88,10 @@
       requiredHeight: 600
     });
 
-    // Set up event listeners
-    document.getElementById('userFilter').addEventListener('change', (e) => {
-      currentUser = e.target.value;
-      createChart(currentRecords);
-    });
-
-    document.getElementById('projectFilter').addEventListener('change', (e) => {
-      currentProject = e.target.value;
-      createChart(currentRecords);
-    });
-
-    document.getElementById('taskFilter').addEventListener('change', (e) => {
-      currentTask = e.target.value;
-      createChart(currentRecords);
-    });
-
     // Handle data
     grist.onRecords(records => {
+      log({ event: 'received records', count: records.length });
       currentRecords = records;
-      updateFilters(records);
       createChart(records);
     });
   </script>
