@@ -39,12 +39,17 @@
     function createChart(records) {
       // Filter non-billable records
       const nonBillable = records.filter(r => r.Billable === 'No');
-      log('Non-billable records', { count: nonBillable.length });
+      log('Non-billable records found', { 
+        total: records.length,
+        nonBillable: nonBillable.length,
+        sampleDuration: nonBillable[0]?.['Duration (decimal)']
+      });
 
       // Calculate project totals
       const projectHours = {};
       nonBillable.forEach(record => {
         const project = record.Project || 'Unknown';
+        // Use Duration (decimal) field
         const hours = parseFloat(record['Duration (decimal)']) || 0;
         projectHours[project] = (projectHours[project] || 0) + hours;
       });
@@ -53,7 +58,11 @@
       const chartData = Object.entries(projectHours)
         .sort((a, b) => b[1] - a[1]);
 
-      log('Project hours', projectHours);
+      log('Project hours calculated', {
+        projects: Object.keys(projectHours).length,
+        totalHours: Object.values(projectHours).reduce((a, b) => a + b, 0),
+        sampleData: chartData.slice(0, 3)
+      });
 
       // Create/update chart
       const ctx = document.getElementById('projectChart').getContext('2d');
@@ -95,7 +104,7 @@
     grist.onRecords(records => {
       log('Received records', {
         count: records.length,
-        first: records[0]
+        firstRecord: records[0]
       });
       
       if (records && records.length > 0) {
