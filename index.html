@@ -13,15 +13,27 @@
       margin-bottom: 10px;
       font-family: monospace;
     }
-    select { margin: 5px; }
+    .filters {
+      margin-bottom: 10px;
+    }
+    select { 
+      margin: 5px;
+      padding: 4px;
+      min-width: 120px;
+    }
   </style>
 </head>
 <body>
   <div class="debug" id="debugOutput"></div>
 
-  <select id="userFilter">
-    <option value="all">All Users</option>
-  </select>
+  <div class="filters">
+    <select id="userFilter">
+      <option value="all">All Users</option>
+    </select>
+    <select id="projectFilter">
+      <option value="all">All Projects</option>
+    </select>
+  </div>
 
   <div>Hours: <span id="totalHours">-</span></div>
   
@@ -33,6 +45,7 @@
     let chart = null;
     let currentRecords = [];
     let currentUser = 'all';
+    let currentProject = 'all';
 
     function log(msg) {
       const debug = document.getElementById('debugOutput');
@@ -45,10 +58,22 @@
     function updateFilters(records) {
       try {
         const users = [...new Set(records.map(r => r.User))].sort();
+        const projects = [...new Set(records.map(r => r.Project))].sort();
+
         const userFilter = document.getElementById('userFilter');
+        const projectFilter = document.getElementById('projectFilter');
+
         userFilter.innerHTML = '<option value="all">All Users</option>';
+        projectFilter.innerHTML = '<option value="all">All Projects</option>';
+
         users.forEach(user => userFilter.add(new Option(user, user)));
-        log({ status: 'Filters updated', userCount: users.length });
+        projects.forEach(project => projectFilter.add(new Option(project, project)));
+
+        log({ 
+          status: 'Filters updated', 
+          userCount: users.length,
+          projectCount: projects.length
+        });
       } catch (err) {
         log({ error: 'Filter update failed', message: err.message });
       }
@@ -60,7 +85,8 @@
         const filtered = records.filter(r => {
           const billableMatch = r.Billable === 'No';
           const userMatch = currentUser === 'all' || r.User === currentUser;
-          return billableMatch && userMatch;
+          const projectMatch = currentProject === 'all' || r.Project === currentProject;
+          return billableMatch && userMatch && projectMatch;
         });
 
         // Calculate hours
@@ -91,7 +117,13 @@
           options: {
             indexAxis: 'y',
             responsive: true,
-            maintainAspectRatio: false
+            maintainAspectRatio: false,
+            plugins: {
+              title: {
+                display: true,
+                text: 'Non-Billable Hours by Project'
+              }
+            }
           }
         });
 
@@ -110,9 +142,14 @@
       requiredHeight: 600
     });
 
-    // Set up user filter listener
+    // Set up filter listeners
     document.getElementById('userFilter').addEventListener('change', (e) => {
       currentUser = e.target.value;
+      createChart(currentRecords);
+    });
+
+    document.getElementById('projectFilter').addEventListener('change', (e) => {
+      currentProject = e.target.value;
       createChart(currentRecords);
     });
 
