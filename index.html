@@ -32,6 +32,7 @@
   <script>
     let chart = null;
     let currentRecords = [];
+    let currentUser = 'all';
 
     function log(msg) {
       const debug = document.getElementById('debugOutput');
@@ -41,13 +42,30 @@
       console.log(msg);
     }
 
+    function updateFilters(records) {
+      try {
+        const users = [...new Set(records.map(r => r.User))].sort();
+        const userFilter = document.getElementById('userFilter');
+        userFilter.innerHTML = '<option value="all">All Users</option>';
+        users.forEach(user => userFilter.add(new Option(user, user)));
+        log({ status: 'Filters updated', userCount: users.length });
+      } catch (err) {
+        log({ error: 'Filter update failed', message: err.message });
+      }
+    }
+
     function createChart(records) {
       try {
-        // Basic data processing
-        const nonBillable = records.filter(r => r.Billable === 'No');
+        // Filter records
+        const filtered = records.filter(r => {
+          const billableMatch = r.Billable === 'No';
+          const userMatch = currentUser === 'all' || r.User === currentUser;
+          return billableMatch && userMatch;
+        });
+
+        // Calculate hours
         const hours = {};
-        
-        nonBillable.forEach(r => {
+        filtered.forEach(r => {
           const project = r.Project || 'Unknown';
           hours[project] = (hours[project] || 0) + (r.Duration_decimal_ || 0);
         });
@@ -77,7 +95,11 @@
           }
         });
 
-        log({ status: 'Chart created', records: records.length });
+        log({ 
+          status: 'Chart updated', 
+          filteredRecords: filtered.length,
+          totalHours: total
+        });
       } catch (err) {
         log({ error: err.message });
       }
@@ -88,10 +110,17 @@
       requiredHeight: 600
     });
 
+    // Set up user filter listener
+    document.getElementById('userFilter').addEventListener('change', (e) => {
+      currentUser = e.target.value;
+      createChart(currentRecords);
+    });
+
     // Handle data
     grist.onRecords(records => {
       log({ event: 'received records', count: records.length });
       currentRecords = records;
+      updateFilters(records);
       createChart(records);
     });
   </script>
