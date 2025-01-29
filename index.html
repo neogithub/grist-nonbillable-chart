@@ -137,28 +137,65 @@
       }
 
       function processData(records) {
+        // First, ensure we have records
+        if (!records || !records.length) {
+          log('No records to process', { records });
+          return { byUser: {}, projectDistribution: {}, taskDistribution: {} };
+        }
+
+        // Filter for non-billable records
         const nonBillableRecords = records.filter(r => r.Billable === 'No');
-        const validRecords = nonBillableRecords.map(validateAndParseRecord);
-        
-        const byUser = _.groupBy(validRecords, 'user');
-        const projectDistribution = {};
-        
-        Object.entries(byUser).forEach(([user, entries]) => {
-          projectDistribution[user] = _.chain(entries)
-            .groupBy('project')
-            .mapValues(group => _.sumBy(group, 'duration'))
-            .value();
+        log('Non-billable records', { count: nonBillableRecords.length });
+
+        // Group by user and calculate totals
+        const byUser = {};
+        const projectTotals = {};
+        const taskTotals = {};
+
+        nonBillableRecords.forEach(record => {
+          const duration = parseFloat(record['Duration (decimal)']) || 0;
+          const user = record.User || 'Unknown';
+          const project = record.Project || 'Unknown';
+          const task = record.Task || 'Unknown';
+          
+          // Update user totals
+          if (!byUser[user]) {
+            byUser[user] = [];
+          }
+          byUser[user].push({
+            project,
+            task,
+            duration,
+            startDate: record['Start Date']
+          });
+
+          // Update project totals
+          projectTotals[project] = (projectTotals[project] || 0) + duration;
+          
+          // Update task totals
+          taskTotals[task] = (taskTotals[task] || 0) + duration;
         });
 
-        const taskDistribution = _.chain(validRecords)
-          .groupBy('task')
-          .mapValues(group => _.sumBy(group, 'duration'))
-          .value();
+        // Calculate project distribution for each user
+        const projectDistribution = {};
+        Object.entries(byUser).forEach(([user, entries]) => {
+          projectDistribution[user] = entries.reduce((acc, entry) => {
+            acc[entry.project] = (acc[entry.project] || 0) + entry.duration;
+            return acc;
+          }, {});
+        });
+
+        log('Processed data', { 
+          userCount: Object.keys(byUser).length,
+          projectCount: Object.keys(projectTotals).length,
+          taskCount: Object.keys(taskTotals).length
+        });
 
         return {
           byUser,
           projectDistribution,
-          taskDistribution
+          projectTotals,
+          taskTotals
         };
       }
 
@@ -170,17 +207,23 @@
           charts.distribution.destroy();
         }
 
+        // Prepare chart data based on selection
         let chartData;
         if (selectedUser === 'all') {
-          chartData = _.chain(data.byUser)
-            .flatMap()
-            .groupBy('project')
-            .mapValues(group => _.sumBy(group, 'duration'))
-            .entries()
-            .value();
+          // Use overall project totals
+          chartData = Object.entries(data.projectTotals)
+            .sort((a, b) => b[1] - a[1]); // Sort by hours descending
         } else {
-          chartData = _.entries(data.projectDistribution[selectedUser] || {});
+          // Use user-specific project distribution
+          chartData = Object.entries(data.projectDistribution[selectedUser] || {})
+            .sort((a, b) => b[1] - a[1]);
         }
+
+        log('Chart data prepared', {
+          selectedUser,
+          dataPoints: chartData.length,
+          sample: chartData.slice(0, 3)
+        });
 
         charts.distribution = new Chart(distributionCtx, {
           type: 'doughnut',
@@ -216,16 +259,21 @@
           charts.trend.destroy();
         }
 
+        // Get entries for selected user or all users
         const entries = selectedUser === 'all' ? 
-          _.flatMap(data.byUser) :
+          Object.values(data.byUser).flat() :
           data.byUser[selectedUser] || [];
 
-        const dailyHours = _.chain(entries)
-          .groupBy('startDate')
-          .mapValues(group => _.sumBy(group, 'duration'))
-          .toPairs()
-          .sortBy([0])
-          .value();
+        // Create daily totals
+        const dailyTotals = {};
+        entries.forEach(entry => {
+          const date = entry.startDate;
+          dailyTotals[date] = (dailyTotals[date] || 0) + entry.duration;
+        });
+
+        // Convert to sorted array
+        const dailyHours = Object.entries(dailyTotals)
+          .sort((a, b) => new Date(a[0]) - new Date(b[0]));
 
         charts.trend = new Chart(trendCtx, {
           type: 'line',
