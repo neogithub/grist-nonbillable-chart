@@ -18,11 +18,17 @@
       height: 400px;
       margin: 20px 0;
     }
+    .summary {
+      margin: 20px 0;
+      font-size: 16px;
+    }
   </style>
 </head>
 <body>
   <div id="debug">Loading...</div>
-  
+  <div class="summary">
+    Total Non-Billable Hours: <span id="totalHours">-</span>
+  </div>
   <div class="chart-wrapper">
     <canvas id="projectChart"></canvas>
   </div>
@@ -39,18 +45,13 @@
     function createChart(records) {
       // Filter non-billable records
       const nonBillable = records.filter(r => r.Billable === 'No');
-      log('Non-billable records found', { 
-        total: records.length,
-        nonBillable: nonBillable.length,
-        sampleDuration: nonBillable[0]?.['Duration (decimal)']
-      });
-
+      
       // Calculate project totals
       const projectHours = {};
       nonBillable.forEach(record => {
         const project = record.Project || 'Unknown';
-        // Use Duration (decimal) field
-        const hours = parseFloat(record['Duration (decimal)']) || 0;
+        // Access Duration (decimal) directly as a number
+        const hours = record['Duration (decimal)'] || 0;
         projectHours[project] = (projectHours[project] || 0) + hours;
       });
 
@@ -58,9 +59,12 @@
       const chartData = Object.entries(projectHours)
         .sort((a, b) => b[1] - a[1]);
 
+      const totalHours = Object.values(projectHours).reduce((a, b) => a + b, 0);
+      document.getElementById('totalHours').textContent = totalHours.toFixed(1);
+
       log('Project hours calculated', {
         projects: Object.keys(projectHours).length,
-        totalHours: Object.values(projectHours).reduce((a, b) => a + b, 0),
+        totalHours,
         sampleData: chartData.slice(0, 3)
       });
 
@@ -89,6 +93,17 @@
             title: {
               display: true,
               text: 'Non-Billable Hours by Project'
+            },
+            legend: {
+              display: false
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Hours'
+              }
             }
           }
         }
@@ -104,7 +119,7 @@
     grist.onRecords(records => {
       log('Received records', {
         count: records.length,
-        firstRecord: records[0]
+        sampleDuration: records[0]?.['Duration (decimal)']
       });
       
       if (records && records.length > 0) {
