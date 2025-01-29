@@ -67,6 +67,25 @@
       color: #666;
       margin-top: 5px;
     }
+    .charts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .chart-container {
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      padding: 15px;
+      height: 400px;
+    }
+    .chart-title {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 10px;
+      color: #333;
+    }
   </style>
 </head>
 <body>
@@ -102,12 +121,20 @@
     </div>
   </div>
   
-  <div style="height: 400px;">
-    <canvas id="projectChart"></canvas>
+  <div class="charts">
+    <div class="chart-container">
+      <div class="chart-title">Project Distribution</div>
+      <canvas id="projectChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <div class="chart-title">Task Breakdown</div>
+      <canvas id="taskChart"></canvas>
+    </div>
   </div>
 
   <script>
-    let chart = null;
+    let projectChart = null;
+    let taskChart = null;
     let currentRecords = [];
     let currentUser = 'all';
     let currentProject = 'all';
@@ -134,18 +161,12 @@
 
         users.forEach(user => userFilter.add(new Option(user, user)));
         projects.forEach(project => projectFilter.add(new Option(project, project)));
-
-        log({ 
-          status: 'Filters updated', 
-          userCount: users.length,
-          projectCount: projects.length
-        });
       } catch (err) {
         log({ error: 'Filter update failed', message: err.message });
       }
     }
 
-    function createChart(records) {
+    function createCharts(records) {
       try {
         // Filter records
         const filtered = records.filter(r => {
@@ -155,41 +176,53 @@
           return billableMatch && userMatch && projectMatch;
         });
 
-        // Calculate hours and dates
-        const hours = {};
+        // Calculate project hours
+        const projectHours = {};
+        const taskHours = {};
         const dailyHours = {};
+        
         filtered.forEach(r => {
           const project = r.Project || 'Unknown';
+          const task = r.Task || 'Unknown';
           const date = r.Start_Date || 'Unknown';
           const duration = r.Duration_decimal_ || 0;
           
-          hours[project] = (hours[project] || 0) + duration;
+          projectHours[project] = (projectHours[project] || 0) + duration;
           dailyHours[date] = (dailyHours[date] || 0) + duration;
+          
+          // Track tasks for selected project or all projects
+          if (currentProject === 'all' || project === currentProject) {
+            taskHours[task] = (taskHours[task] || 0) + duration;
+          }
         });
 
-        const chartData = Object.entries(hours).sort((a, b) => b[1] - a[1]);
-        const total = Object.values(hours).reduce((a, b) => a + b, 0);
+        const projectData = Object.entries(projectHours).sort((a, b) => b[1] - a[1]);
+        const taskData = Object.entries(taskHours).sort((a, b) => b[1] - a[1]);
+        
+        const total = Object.values(projectHours).reduce((a, b) => a + b, 0);
         const uniqueDays = Object.keys(dailyHours).length;
         const avgPerDay = uniqueDays ? (total / uniqueDays) : 0;
-        const topProject = chartData[0] || ['None', 0];
+        const topProject = projectData[0] || ['None', 0];
 
         // Update statistics
         document.getElementById('totalHours').textContent = total.toFixed(1);
         document.getElementById('avgHoursPerDay').textContent = avgPerDay.toFixed(1);
         document.getElementById('topProject').textContent = `${topProject[0]} (${topProject[1].toFixed(1)}h)`;
 
-        // Create chart
-        const ctx = document.getElementById('projectChart').getContext('2d');
-        if (chart) chart.destroy();
+        // Update title for task breakdown
+        const taskTitle = document.querySelector('.chart-title:last-child');
+        taskTitle.textContent = currentProject === 'all' ? 
+          'Task Breakdown (All Projects)' : 
+          `Task Breakdown: ${currentProject}`;
 
-        const chartOptions = {
+        // Create project chart
+        const projectCtx = document.getElementById('projectChart').getContext('2d');
+        if (projectChart) projectChart.destroy();
+
+        const projectChartOptions = {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            title: {
-              display: true,
-              text: 'Non-Billable Hours by Project'
-            },
             legend: {
               display: chartType === 'doughnut',
               position: chartType === 'doughnut' ? 'right' : 'top'
@@ -198,8 +231,8 @@
         };
 
         if (chartType === 'bar') {
-          chartOptions.indexAxis = 'y';
-          chartOptions.scales = {
+          projectChartOptions.indexAxis = 'y';
+          projectChartOptions.scales = {
             x: {
               title: {
                 display: true,
@@ -209,29 +242,61 @@
           };
         }
 
-        chart = new Chart(ctx, {
+        projectChart = new Chart(projectCtx, {
           type: chartType === 'bar' ? 'bar' : 'doughnut',
           data: {
-            labels: chartData.map(([project]) => project),
+            labels: projectData.map(([project]) => project),
             datasets: [{
-              data: chartData.map(([, hours]) => hours),
+              data: projectData.map(([, hours]) => hours),
               backgroundColor: chartType === 'bar' ? '#4CAF50' : [
                 '#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0',
                 '#795548', '#607D8B', '#E91E63', '#9E9E9E', '#CDDC39'
               ]
             }]
           },
-          options: chartOptions
+          options: projectChartOptions
+        });
+
+        // Create task chart (always bar chart)
+        const taskCtx = document.getElementById('taskChart').getContext('2d');
+        if (taskChart) taskChart.destroy();
+
+        taskChart = new Chart(taskCtx, {
+          type: 'bar',
+          data: {
+            labels: taskData.map(([task]) => task),
+            datasets: [{
+              data: taskData.map(([, hours]) => hours),
+              backgroundColor: '#2196F3'
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: false
+              }
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: 'Hours'
+                }
+              }
+            }
+          }
         });
 
         log({ 
-          status: 'Chart updated',
+          status: 'Charts updated',
           chartType,
           filteredRecords: filtered.length,
           totalHours: total,
-          avgHoursPerDay: avgPerDay,
-          uniqueDays,
-          topProject: topProject[0]
+          projectCount: projectData.length,
+          taskCount: taskData.length
         });
       } catch (err) {
         log({ error: err.message });
@@ -240,18 +305,18 @@
 
     // Initialize Grist
     grist.ready({
-      requiredHeight: 600
+      requiredHeight: 800
     });
 
     // Set up filter listeners
     document.getElementById('userFilter').addEventListener('change', (e) => {
       currentUser = e.target.value;
-      createChart(currentRecords);
+      createCharts(currentRecords);
     });
 
     document.getElementById('projectFilter').addEventListener('change', (e) => {
       currentProject = e.target.value;
-      createChart(currentRecords);
+      createCharts(currentRecords);
     });
 
     // Set up chart type toggles
@@ -259,14 +324,14 @@
       chartType = 'bar';
       document.getElementById('barChart').classList.add('active');
       document.getElementById('donutChart').classList.remove('active');
-      createChart(currentRecords);
+      createCharts(currentRecords);
     });
 
     document.getElementById('donutChart').addEventListener('click', (e) => {
       chartType = 'doughnut';
       document.getElementById('donutChart').classList.add('active');
       document.getElementById('barChart').classList.remove('active');
-      createChart(currentRecords);
+      createCharts(currentRecords);
     });
 
     // Handle data
@@ -274,7 +339,7 @@
       log({ event: 'received records', count: records.length });
       currentRecords = records;
       updateFilters(records);
-      createChart(records);
+      createCharts(records);
     });
   </script>
 </body>
