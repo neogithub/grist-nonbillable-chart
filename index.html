@@ -6,9 +6,68 @@
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
-  <!-- Same styles as before -->
   <style>
-    /* Previous styles remain unchanged */
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .filters {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    select, button {
+      margin: 5px;
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      min-width: 120px;
+    }
+    button {
+      background: #f0f0f0;
+      cursor: pointer;
+    }
+    button.active {
+      background: #4CAF50;
+      color: white;
+    }
+    .charts-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .chart-wrapper {
+      background: white;
+      border-radius: 8px;
+      padding: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      height: 400px;
+    }
+    .summary-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #4CAF50;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: #666;
+    }
     #debug {
       padding: 10px;
       margin: 10px 0;
@@ -17,14 +76,46 @@
       font-family: monospace;
       font-size: 12px;
       white-space: pre-wrap;
-      max-height: 200px;
-      overflow-y: auto;
     }
   </style>
 </head>
 <body>
   <div id="debug"></div>
-  <!-- Rest of the HTML structure remains the same -->
+  <div class="filters">
+    <select id="userFilter">
+      <option value="all">All Users</option>
+    </select>
+    <select id="projectFilter">
+      <option value="all">All Projects</option>
+    </select>
+    <select id="taskFilter">
+      <option value="all">All Tasks</option>
+    </select>
+  </div>
+
+  <div class="summary-stats">
+    <div class="stat-card">
+      <div class="stat-value" id="totalHours">-</div>
+      <div class="stat-label">Total Non-Billable Hours</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="avgHoursPerDay">-</div>
+      <div class="stat-label">Avg Hours/Day</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="topProject">-</div>
+      <div class="stat-label">Top Non-Billable Project</div>
+    </div>
+  </div>
+
+  <div class="charts-container">
+    <div class="chart-wrapper">
+      <canvas id="distributionChart"></canvas>
+    </div>
+    <div class="chart-wrapper">
+      <canvas id="trendChart"></canvas>
+    </div>
+  </div>
 
   <script>
     let currentRecords = [];
@@ -33,46 +124,37 @@
     function log(message, data) {
       const debugDiv = document.getElementById('debug');
       const timestamp = new Date().toISOString();
-      const logMessage = `${timestamp}: ${message}\n${JSON.stringify(data, null, 2)}\n\n`;
-      debugDiv.innerHTML = logMessage + debugDiv.innerHTML;
+      debugDiv.innerHTML = `${timestamp}: ${message}\n${JSON.stringify(data, null, 2)}`;
       console.log(message, data);
     }
 
     function validateAndParseRecord(record) {
-      // Validate and clean the record data
       return {
         user: record.User || '',
         project: record.Project || '',
+        task: record.Task || '',
         startDate: record['Start Date'] || '',
         duration: parseFloat(record['Duration (decimal)']) || 0,
-        description: record.Description || ''
+        description: record.Description || '',
+        billable: record.Billable === 'Yes'  // Convert to boolean
       };
     }
 
     function processData(records) {
-      log('Raw records received', {
-        count: records.length,
-        firstRecord: records[0],
-        fields: records[0] ? Object.keys(records[0]) : []
-      });
-
-      // Clean and validate records
-      const validRecords = records.map(validateAndParseRecord);
+      // Only process non-billable records
+      const nonBillableRecords = records.filter(r => r.Billable === 'No');
       
-      log('Validated records', {
-        count: validRecords.length,
-        sample: validRecords[0]
+      log('Processing non-billable records', {
+        total: records.length,
+        nonBillable: nonBillableRecords.length
       });
 
-      // Group by user
+      const validRecords = nonBillableRecords.map(validateAndParseRecord);
+      
+      // Group by user and project
       const byUser = _.groupBy(validRecords, 'user');
       
-      log('Grouped by user', {
-        userCount: Object.keys(byUser).length,
-        users: Object.keys(byUser)
-      });
-
-      // Calculate project distribution
+      // Calculate project distribution for each user
       const projectDistribution = {};
       Object.entries(byUser).forEach(([user, entries]) => {
         projectDistribution[user] = _.chain(entries)
@@ -81,13 +163,16 @@
           .value();
       });
 
-      log('Project distribution', {
-        sample: Object.entries(projectDistribution)[0]
-      });
+      // Calculate task distribution
+      const taskDistribution = _.chain(validRecords)
+        .groupBy('task')
+        .mapValues(group => _.sumBy(group, 'duration'))
+        .value();
 
       return {
         byUser,
-        projectDistribution
+        projectDistribution,
+        taskDistribution
       };
     }
 
@@ -100,7 +185,6 @@
 
       let chartData;
       if (selectedUser === 'all') {
-        // Aggregate all users
         chartData = _.chain(data.byUser)
           .flatMap()
           .groupBy('project')
@@ -110,8 +194,6 @@
       } else {
         chartData = _.entries(data.projectDistribution[selectedUser] || {});
       }
-
-      log('Distribution chart data', chartData);
 
       charts.distribution = new Chart(distributionCtx, {
         type: 'doughnut',
@@ -131,7 +213,7 @@
           plugins: {
             title: {
               display: true,
-              text: `Project Distribution - ${selectedUser === 'all' ? 'All Users' : selectedUser}`
+              text: `Non-Billable Project Distribution - ${selectedUser === 'all' ? 'All Users' : selectedUser}`
             },
             legend: {
               position: 'right'
@@ -157,17 +239,12 @@
         .sortBy([0])
         .value();
 
-      log('Trend chart data', {
-        dataPoints: dailyHours.length,
-        sample: dailyHours.slice(0, 3)
-      });
-
       charts.trend = new Chart(trendCtx, {
         type: 'line',
         data: {
           labels: dailyHours.map(([date]) => date),
           datasets: [{
-            label: 'Hours',
+            label: 'Non-Billable Hours',
             data: dailyHours.map(([, hours]) => hours),
             borderColor: '#4CAF50',
             fill: false,
@@ -212,8 +289,8 @@
         .maxBy(1)
         .value();
 
-      log('Summary calculation', {
-        entries: entries.length,
+      log('Summary stats', {
+        selectedUser,
         totalHours,
         uniqueDays,
         avgHoursPerDay,
@@ -227,37 +304,41 @@
 
     function updateFilters(records) {
       const users = [...new Set(records.map(r => r.User))].sort();
+      const projects = [...new Set(records.map(r => r.Project))].sort();
+      const tasks = [...new Set(records.map(r => r.Task))].sort();
+
       const userFilter = document.getElementById('userFilter');
+      const projectFilter = document.getElementById('projectFilter');
+      const taskFilter = document.getElementById('taskFilter');
       
       userFilter.innerHTML = '<option value="all">All Users</option>';
-      users.forEach(user => userFilter.add(new Option(user, user)));
+      projectFilter.innerHTML = '<option value="all">All Projects</option>';
+      taskFilter.innerHTML = '<option value="all">All Tasks</option>';
 
-      log('Updated filters', {
-        userCount: users.length,
-        users
-      });
+      users.forEach(user => userFilter.add(new Option(user, user)));
+      projects.forEach(project => projectFilter.add(new Option(project, project)));
+      tasks.forEach(task => taskFilter.add(new Option(task, task)));
     }
 
     // Initialize Grist
     grist.ready({
-      requiredHeight: 600
+      requiredHeight: 800
     });
     
     // Set up event listeners
-    document.getElementById('userFilter').addEventListener('change', (e) => {
-      const selectedUser = e.target.value;
-      log('User selection changed', { selectedUser });
-      
-      const data = processData(currentRecords);
-      createCharts(data, selectedUser);
-      updateSummaryStats(data, selectedUser);
+    ['userFilter', 'projectFilter', 'taskFilter'].forEach(filterId => {
+      document.getElementById(filterId).addEventListener('change', () => {
+        const selectedUser = document.getElementById('userFilter').value;
+        const data = processData(currentRecords);
+        createCharts(data, selectedUser);
+        updateSummaryStats(data, selectedUser);
+      });
     });
 
     // Handle incoming data from Grist
     grist.onRecords(records => {
-      log('Initial records received', {
+      log('Received records', {
         count: records.length,
-        fields: records[0] ? Object.keys(records[0]) : [],
         sampleRecord: records[0]
       });
 
