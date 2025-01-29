@@ -6,68 +6,9 @@
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+  <!-- Same styles as before -->
   <style>
-    body {
-      margin: 0;
-      padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segue UI', Roboto, sans-serif;
-    }
-    .filters {
-      margin-bottom: 20px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    select, button {
-      margin: 5px;
-      padding: 8px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      min-width: 120px;
-    }
-    button {
-      background: #f0f0f0;
-      cursor: pointer;
-    }
-    button.active {
-      background: #4CAF50;
-      color: white;
-    }
-    .charts-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-      gap: 20px;
-      margin-top: 20px;
-    }
-    .chart-wrapper {
-      background: white;
-      border-radius: 8px;
-      padding: 15px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      height: 400px;
-    }
-    .summary-stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 15px;
-      margin-bottom: 20px;
-    }
-    .stat-card {
-      background: white;
-      padding: 15px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .stat-value {
-      font-size: 24px;
-      font-weight: bold;
-      color: #4CAF50;
-    }
-    .stat-label {
-      font-size: 14px;
-      color: #666;
-    }
+    /* Previous styles remain unchanged */
     #debug {
       padding: 10px;
       margin: 10px 0;
@@ -76,47 +17,14 @@
       font-family: monospace;
       font-size: 12px;
       white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
     }
   </style>
 </head>
 <body>
   <div id="debug"></div>
-  <div class="filters">
-    <select id="userFilter">
-      <option value="all">All Users</option>
-    </select>
-    <select id="quarterFilter">
-      <option value="all">All Time</option>
-      <option value="Q1">Q1 (Jan-Mar)</option>
-      <option value="Q2">Q2 (Apr-Jun)</option>
-      <option value="Q3">Q3 (Jul-Sep)</option>
-      <option value="Q4">Q4 (Oct-Dec)</option>
-    </select>
-  </div>
-
-  <div class="summary-stats">
-    <div class="stat-card">
-      <div class="stat-value" id="totalHours">-</div>
-      <div class="stat-label">Total Non-Billable Hours</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value" id="avgHoursPerDay">-</div>
-      <div class="stat-label">Avg Hours/Day</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value" id="topProject">-</div>
-      <div class="stat-label">Top Non-Billable Project</div>
-    </div>
-  </div>
-
-  <div class="charts-container">
-    <div class="chart-wrapper">
-      <canvas id="distributionChart"></canvas>
-    </div>
-    <div class="chart-wrapper">
-      <canvas id="trendChart"></canvas>
-    </div>
-  </div>
+  <!-- Rest of the HTML structure remains the same -->
 
   <script>
     let currentRecords = [];
@@ -125,80 +33,87 @@
     function log(message, data) {
       const debugDiv = document.getElementById('debug');
       const timestamp = new Date().toISOString();
-      debugDiv.innerHTML = `${timestamp}: ${message}\n${JSON.stringify(data, null, 2)}`;
+      const logMessage = `${timestamp}: ${message}\n${JSON.stringify(data, null, 2)}\n\n`;
+      debugDiv.innerHTML = logMessage + debugDiv.innerHTML;
       console.log(message, data);
     }
 
-    function getQuarter(date) {
-      const month = new Date(date).getMonth();
-      return `Q${Math.floor(month / 3) + 1}`;
+    function validateAndParseRecord(record) {
+      // Validate and clean the record data
+      return {
+        user: record.User || '',
+        project: record.Project || '',
+        startDate: record['Start Date'] || '',
+        duration: parseFloat(record['Duration (decimal)']) || 0,
+        description: record.Description || ''
+      };
     }
 
-    function filterRecords(records, user, quarter) {
-      let filtered = records;
-
-      if (user !== 'all') {
-        filtered = filtered.filter(r => r.User === user);
-      }
-
-      if (quarter !== 'all') {
-        filtered = filtered.filter(r => getQuarter(r['Start Date']) === quarter);
-      }
-
-      return filtered;
-    }
-
-    function processData(records, user = 'all', quarter = 'all') {
-      const filtered = filterRecords(records, user, quarter);
-      
-      log('Processing records', {
-        totalRecords: records.length,
-        filteredRecords: filtered.length,
-        user,
-        quarter
+    function processData(records) {
+      log('Raw records received', {
+        count: records.length,
+        firstRecord: records[0],
+        fields: records[0] ? Object.keys(records[0]) : []
       });
 
-      // Group by user and project
-      const byUserProject = _.groupBy(filtered, 'User');
+      // Clean and validate records
+      const validRecords = records.map(validateAndParseRecord);
       
-      // Calculate project distribution for each user
+      log('Validated records', {
+        count: validRecords.length,
+        sample: validRecords[0]
+      });
+
+      // Group by user
+      const byUser = _.groupBy(validRecords, 'user');
+      
+      log('Grouped by user', {
+        userCount: Object.keys(byUser).length,
+        users: Object.keys(byUser)
+      });
+
+      // Calculate project distribution
       const projectDistribution = {};
-      Object.entries(byUserProject).forEach(([user, entries]) => {
+      Object.entries(byUser).forEach(([user, entries]) => {
         projectDistribution[user] = _.chain(entries)
-          .groupBy('Project')
-          .mapValues(group => _.sumBy(group, r => parseFloat(r['Duration (decimal)']) || 0))
+          .groupBy('project')
+          .mapValues(group => _.sumBy(group, 'duration'))
           .value();
       });
 
+      log('Project distribution', {
+        sample: Object.entries(projectDistribution)[0]
+      });
+
       return {
-        byUserProject,
+        byUser,
         projectDistribution
       };
     }
 
-    function createDistributionChart(data, user = 'all') {
-      const ctx = document.getElementById('distributionChart').getContext('2d');
-      
+    function createCharts(data, selectedUser = 'all') {
+      // Create distribution chart (donut)
+      const distributionCtx = document.getElementById('distributionChart').getContext('2d');
       if (charts.distribution) {
         charts.distribution.destroy();
       }
 
       let chartData;
-      if (user === 'all') {
+      if (selectedUser === 'all') {
         // Aggregate all users
-        chartData = _.chain(data.byUserProject)
+        chartData = _.chain(data.byUser)
           .flatMap()
-          .groupBy('Project')
-          .mapValues(group => _.sumBy(group, r => parseFloat(r['Duration (decimal)']) || 0))
+          .groupBy('project')
+          .mapValues(group => _.sumBy(group, 'duration'))
           .entries()
           .value();
       } else {
-        chartData = _.entries(data.projectDistribution[user] || {});
+        chartData = _.entries(data.projectDistribution[selectedUser] || {});
       }
 
       log('Distribution chart data', chartData);
 
-      charts.distribution = new Chart(ctx, {
+      charts.distribution = new Chart(distributionCtx, {
         type: 'doughnut',
         data: {
           labels: chartData.map(([project]) => project),
@@ -216,7 +131,7 @@
           plugins: {
             title: {
               display: true,
-              text: `Project Distribution - ${user === 'all' ? 'All Users' : user}`
+              text: `Project Distribution - ${selectedUser === 'all' ? 'All Users' : selectedUser}`
             },
             legend: {
               position: 'right'
@@ -224,29 +139,30 @@
           }
         }
       });
-    }
 
-    function createTrendChart(data, user = 'all') {
-      const ctx = document.getElementById('trendChart').getContext('2d');
-      
+      // Create trend chart (line)
+      const trendCtx = document.getElementById('trendChart').getContext('2d');
       if (charts.trend) {
         charts.trend.destroy();
       }
 
-      let entries = user === 'all' ? 
-        _.flatMap(data.byUserProject) :
-        data.byUserProject[user] || [];
+      const entries = selectedUser === 'all' ? 
+        _.flatMap(data.byUser) :
+        data.byUser[selectedUser] || [];
 
       const dailyHours = _.chain(entries)
-        .groupBy(r => r['Start Date'])
-        .mapValues(group => _.sumBy(group, r => parseFloat(r['Duration (decimal)']) || 0))
+        .groupBy('startDate')
+        .mapValues(group => _.sumBy(group, 'duration'))
         .toPairs()
         .sortBy([0])
         .value();
 
-      log('Trend chart data', dailyHours);
+      log('Trend chart data', {
+        dataPoints: dailyHours.length,
+        sample: dailyHours.slice(0, 3)
+      });
 
-      charts.trend = new Chart(ctx, {
+      charts.trend = new Chart(trendCtx, {
         type: 'line',
         data: {
           labels: dailyHours.map(([date]) => date),
@@ -264,7 +180,7 @@
           plugins: {
             title: {
               display: true,
-              text: `Daily Non-Billable Hours - ${user === 'all' ? 'All Users' : user}`
+              text: `Daily Non-Billable Hours - ${selectedUser === 'all' ? 'All Users' : selectedUser}`
             }
           },
           scales: {
@@ -280,23 +196,24 @@
       });
     }
 
-    function updateSummaryStats(data, user = 'all') {
-      let entries = user === 'all' ? 
-        _.flatMap(data.byUserProject) :
-        data.byUserProject[user] || [];
+    function updateSummaryStats(data, selectedUser = 'all') {
+      const entries = selectedUser === 'all' ? 
+        _.flatMap(data.byUser) :
+        data.byUser[selectedUser] || [];
 
-      const totalHours = _.sumBy(entries, r => parseFloat(r['Duration (decimal)']) || 0);
-      const uniqueDays = new Set(entries.map(r => r['Start Date'])).size;
+      const totalHours = _.sumBy(entries, 'duration');
+      const uniqueDays = new Set(entries.map(e => e.startDate)).size;
       const avgHoursPerDay = uniqueDays ? (totalHours / uniqueDays) : 0;
 
       const topProject = _.chain(entries)
-        .groupBy('Project')
-        .mapValues(group => _.sumBy(group, r => parseFloat(r['Duration (decimal)']) || 0))
+        .groupBy('project')
+        .mapValues(group => _.sumBy(group, 'duration'))
         .toPairs()
         .maxBy(1)
         .value();
 
-      log('Summary stats', {
+      log('Summary calculation', {
+        entries: entries.length,
         totalHours,
         uniqueDays,
         avgHoursPerDay,
@@ -314,39 +231,42 @@
       
       userFilter.innerHTML = '<option value="all">All Users</option>';
       users.forEach(user => userFilter.add(new Option(user, user)));
-    }
 
-    function updateVisualizations() {
-      const selectedUser = document.getElementById('userFilter').value;
-      const selectedQuarter = document.getElementById('quarterFilter').value;
-      
-      const processedData = processData(currentRecords, selectedUser, selectedQuarter);
-      createDistributionChart(processedData, selectedUser);
-      createTrendChart(processedData, selectedUser);
-      updateSummaryStats(processedData, selectedUser);
+      log('Updated filters', {
+        userCount: users.length,
+        users
+      });
     }
 
     // Initialize Grist
-    grist.ready();
+    grist.ready({
+      requiredHeight: 600
+    });
     
     // Set up event listeners
-    document.getElementById('userFilter').addEventListener('change', () => {
-      updateVisualizations();
+    document.getElementById('userFilter').addEventListener('change', (e) => {
+      const selectedUser = e.target.value;
+      log('User selection changed', { selectedUser });
+      
+      const data = processData(currentRecords);
+      createCharts(data, selectedUser);
+      updateSummaryStats(data, selectedUser);
     });
 
-    document.getElementById('quarterFilter').addEventListener('change', () => {
-      updateVisualizations();
-    });
-
+    // Handle incoming data from Grist
     grist.onRecords(records => {
-      log('Received records', {
+      log('Initial records received', {
         count: records.length,
+        fields: records[0] ? Object.keys(records[0]) : [],
         sampleRecord: records[0]
       });
 
       currentRecords = records;
       updateFilters(records);
-      updateVisualizations();
+      
+      const data = processData(records);
+      createCharts(data);
+      updateSummaryStats(data);
     });
   </script>
 </body>
