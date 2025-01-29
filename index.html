@@ -8,7 +8,7 @@
   <style>
     body { 
       padding: 16px; 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segue UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     .debug { 
       padding: 10px;
@@ -82,7 +82,11 @@
       padding: 15px;
       border-radius: 4px;
       border: 1px solid #e0e0e0;
-      width: 200px;
+      width: 180px;
+    }
+    .stat-card.highlight {
+      border-color: #4CAF50;
+      background: #f1f8e9;
     }
     .stat-value {
       font-size: 24px;
@@ -114,6 +118,9 @@
 
   <div class="controls">
     <div class="control-group">
+      <select id="groupFilter">
+        <option value="all">All Groups</option>
+      </select>
       <select id="userFilter">
         <option value="all">All Users</option>
       </select>
@@ -131,11 +138,10 @@
     <div class="control-group">
       <button id="barChart" class="active">Bar Chart</button>
       <button id="donutChart">Donut Chart</button>
-    </div>
-
-    <div class="task-group-toggle">
-      <input type="checkbox" id="groupTasks">
-      <label for="groupTasks">Group Similar Tasks</label>
+      <div class="task-group-toggle">
+        <input type="checkbox" id="groupTasks">
+        <label for="groupTasks">Group Similar Tasks</label>
+      </div>
     </div>
   </div>
 
@@ -152,6 +158,18 @@
       <div class="stat-value" id="topProject">-</div>
       <div class="stat-label">Top Non-Billable Project</div>
     </div>
+    <div class="stat-card highlight">
+      <div class="stat-value" id="ptoHours">-</div>
+      <div class="stat-label">PTO Hours</div>
+    </div>
+    <div class="stat-card highlight">
+      <div class="stat-value" id="holidayHours">-</div>
+      <div class="stat-label">Holiday Hours</div>
+    </div>
+    <div class="stat-card highlight">
+      <div class="stat-value" id="meetingHours">-</div>
+      <div class="stat-label">Meeting Hours</div>
+    </div>
   </div>
   
   <div class="chart-area">
@@ -167,6 +185,7 @@
     let projectChart = null;
     let taskChart = null;
     let currentRecords = [];
+    let currentGroup = 'all';
     let currentUser = 'all';
     let currentProject = 'all';
     let chartType = 'bar';
@@ -174,6 +193,10 @@
     let endDate = null;
     let groupTasks = false;
 
+    // Meeting tasks for tracking
+    const meetingTasks = ['Internal Meetings', '1:1 Meetings & Prep', 'Staff Meeting / Town Hall'];
+
+    // Task categories for grouping
     const taskCategories = {
       'Meetings': ['Internal Meetings', '1:1 Meetings & Prep', 'Staff Meeting / Town Hall'],
       'Administration': ['Admin', 'Miscellaneous'],
@@ -213,15 +236,19 @@
 
     function updateFilters(records) {
       try {
+        const groups = [...new Set(records.map(r => r.Group))].sort();
         const users = [...new Set(records.map(r => r.User))].sort();
         const projects = [...new Set(records.map(r => r.Project))].sort();
 
+        const groupFilter = document.getElementById('groupFilter');
         const userFilter = document.getElementById('userFilter');
         const projectFilter = document.getElementById('projectFilter');
 
+        groupFilter.innerHTML = '<option value="all">All Groups</option>';
         userFilter.innerHTML = '<option value="all">All Users</option>';
         projectFilter.innerHTML = '<option value="all">All Projects</option>';
 
+        groups.forEach(group => groupFilter.add(new Option(group, group)));
         users.forEach(user => userFilter.add(new Option(user, user)));
         projects.forEach(project => projectFilter.add(new Option(project, project)));
       } catch (err) {
@@ -236,15 +263,19 @@
         
         const filtered = records.filter(r => {
           const billableMatch = r.Billable === 'No';
+          const groupMatch = currentGroup === 'all' || r.Group === currentGroup;
           const userMatch = currentUser === 'all' || r.User === currentUser;
           const projectMatch = currentProject === 'all' || r.Project === currentProject;
-          return billableMatch && userMatch && projectMatch;
+          return billableMatch && groupMatch && userMatch && projectMatch;
         });
 
         // Calculate hours
         const projectHours = {};
         const taskHours = {};
         const dailyHours = {};
+        let ptoHours = 0;
+        let holidayHours = 0;
+        let meetingHours = 0;
         
         filtered.forEach(r => {
           const project = r.Project || 'Unknown';
@@ -258,6 +289,11 @@
           if (currentProject === 'all' || project === currentProject) {
             taskHours[task] = (taskHours[task] || 0) + duration;
           }
+
+          // Track specific categories
+          if (r.Task === 'PTO') ptoHours += duration;
+          if (r.Task === 'Holiday') holidayHours += duration;
+          if (meetingTasks.includes(r.Task)) meetingHours += duration;
         });
 
         const projectData = Object.entries(projectHours).sort((a, b) => b[1] - a[1]);
@@ -272,6 +308,9 @@
         document.getElementById('totalHours').textContent = total.toFixed(1);
         document.getElementById('avgHoursPerDay').textContent = avgPerDay.toFixed(1);
         document.getElementById('topProject').textContent = `${topProject[0]} (${topProject[1].toFixed(1)}h)`;
+        document.getElementById('ptoHours').textContent = ptoHours.toFixed(1);
+        document.getElementById('holidayHours').textContent = holidayHours.toFixed(1);
+        document.getElementById('meetingHours').textContent = meetingHours.toFixed(1);
 
         // Create project chart
         const projectCtx = document.getElementById('projectChart').getContext('2d');
@@ -358,7 +397,10 @@
           dateRange: { start: startDate, end: endDate },
           filteredRecords: filtered.length,
           groupedTasks: groupTasks,
-          totalHours: total
+          totalHours: total,
+          ptoHours,
+          holidayHours,
+          meetingHours
         });
       } catch (err) {
         log({ error: err.message });
@@ -397,7 +439,12 @@
       requiredHeight: 800
     });
 
-    // Set up event listeners
+    // Set up filter listeners
+    document.getElementById('groupFilter').addEventListener('change', (e) => {
+      currentGroup = e.target.value;
+      createCharts(currentRecords);
+    });
+
     document.getElementById('userFilter').addEventListener('change', (e) => {
       currentUser = e.target.value;
       createCharts(currentRecords);
