@@ -10,7 +10,7 @@
     body {
       margin: 0;
       padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segue UI', Roboto, sans-serif;
     }
     .filters {
       margin-bottom: 20px;
@@ -68,23 +68,30 @@
       font-size: 14px;
       color: #666;
     }
+    #debug {
+      padding: 10px;
+      margin: 10px 0;
+      background-color: #f5f5f5;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
+  <div id="debug"></div>
   <div class="filters">
     <select id="userFilter">
       <option value="all">All Users</option>
     </select>
-    <select id="dateRangeFilter">
+    <select id="quarterFilter">
       <option value="all">All Time</option>
-      <option value="q1">Q1</option>
-      <option value="q2">Q2</option>
-      <option value="q3">Q3</option>
-      <option value="q4">Q4</option>
+      <option value="Q1">Q1 (Jan-Mar)</option>
+      <option value="Q2">Q2 (Apr-Jun)</option>
+      <option value="Q3">Q3 (Jul-Sep)</option>
+      <option value="Q4">Q4 (Oct-Dec)</option>
     </select>
-    <button id="projectView" class="active">By Project</button>
-    <button id="timelineView">Timeline</button>
-    <button id="detailView">Details</button>
   </div>
 
   <div class="summary-stats">
@@ -113,12 +120,46 @@
 
   <script>
     let currentRecords = [];
-    let currentView = 'project';
     let charts = {};
-    
-    function processData(records) {
+
+    function log(message, data) {
+      const debugDiv = document.getElementById('debug');
+      const timestamp = new Date().toISOString();
+      debugDiv.innerHTML = `${timestamp}: ${message}\n${JSON.stringify(data, null, 2)}`;
+      console.log(message, data);
+    }
+
+    function getQuarter(date) {
+      const month = new Date(date).getMonth();
+      return `Q${Math.floor(month / 3) + 1}`;
+    }
+
+    function filterRecords(records, user, quarter) {
+      let filtered = records;
+
+      if (user !== 'all') {
+        filtered = filtered.filter(r => r.User === user);
+      }
+
+      if (quarter !== 'all') {
+        filtered = filtered.filter(r => getQuarter(r['Start Date']) === quarter);
+      }
+
+      return filtered;
+    }
+
+    function processData(records, user = 'all', quarter = 'all') {
+      const filtered = filterRecords(records, user, quarter);
+      
+      log('Processing records', {
+        totalRecords: records.length,
+        filteredRecords: filtered.length,
+        user,
+        quarter
+      });
+
       // Group by user and project
-      const byUserProject = _.groupBy(records, 'User');
+      const byUserProject = _.groupBy(filtered, 'User');
       
       // Calculate project distribution for each user
       const projectDistribution = {};
@@ -154,6 +195,8 @@
       } else {
         chartData = _.entries(data.projectDistribution[user] || {});
       }
+
+      log('Distribution chart data', chartData);
 
       charts.distribution = new Chart(ctx, {
         type: 'doughnut',
@@ -200,6 +243,8 @@
         .toPairs()
         .sortBy([0])
         .value();
+
+      log('Trend chart data', dailyHours);
 
       charts.trend = new Chart(ctx, {
         type: 'line',
@@ -251,6 +296,13 @@
         .maxBy(1)
         .value();
 
+      log('Summary stats', {
+        totalHours,
+        uniqueDays,
+        avgHoursPerDay,
+        topProject
+      });
+
       document.getElementById('totalHours').textContent = totalHours.toFixed(1);
       document.getElementById('avgHoursPerDay').textContent = avgHoursPerDay.toFixed(1);
       document.getElementById('topProject').textContent = topProject ? topProject[0] : '-';
@@ -264,36 +316,37 @@
       users.forEach(user => userFilter.add(new Option(user, user)));
     }
 
+    function updateVisualizations() {
+      const selectedUser = document.getElementById('userFilter').value;
+      const selectedQuarter = document.getElementById('quarterFilter').value;
+      
+      const processedData = processData(currentRecords, selectedUser, selectedQuarter);
+      createDistributionChart(processedData, selectedUser);
+      createTrendChart(processedData, selectedUser);
+      updateSummaryStats(processedData, selectedUser);
+    }
+
     // Initialize Grist
     grist.ready();
     
     // Set up event listeners
-    document.getElementById('userFilter').addEventListener('change', (e) => {
-      const processedData = processData(currentRecords);
-      createDistributionChart(processedData, e.target.value);
-      createTrendChart(processedData, e.target.value);
-      updateSummaryStats(processedData, e.target.value);
+    document.getElementById('userFilter').addEventListener('change', () => {
+      updateVisualizations();
     });
 
-    ['projectView', 'timelineView', 'detailView'].forEach(viewId => {
-      document.getElementById(viewId).addEventListener('click', (e) => {
-        document.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
-        e.target.classList.add('active');
-        currentView = viewId.replace('View', '');
-        const processedData = processData(currentRecords);
-        const selectedUser = document.getElementById('userFilter').value;
-        createDistributionChart(processedData, selectedUser);
-        createTrendChart(processedData, selectedUser);
-      });
+    document.getElementById('quarterFilter').addEventListener('change', () => {
+      updateVisualizations();
     });
 
     grist.onRecords(records => {
+      log('Received records', {
+        count: records.length,
+        sampleRecord: records[0]
+      });
+
       currentRecords = records;
-      const processedData = processData(records);
       updateFilters(records);
-      createDistributionChart(processedData);
-      createTrendChart(processedData);
-      updateSummaryStats(processedData);
+      updateVisualizations();
     });
   </script>
 </body>
