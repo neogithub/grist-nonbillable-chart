@@ -24,13 +24,17 @@
       padding: 4px;
       min-width: 120px;
     }
+    .stats {
+      display: flex;
+      gap: 15px;
+      margin: 10px 0;
+    }
     .stat-card {
       background: white;
       padding: 15px;
       border-radius: 8px;
       border: 1px solid #e0e0e0;
-      margin: 10px 0;
-      max-width: 200px;
+      width: 200px;
     }
     .stat-value {
       font-size: 24px;
@@ -56,9 +60,15 @@
     </select>
   </div>
 
-  <div class="stat-card">
-    <div class="stat-value" id="totalHours">-</div>
-    <div class="stat-label">Total Non-Billable Hours</div>
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value" id="totalHours">-</div>
+      <div class="stat-label">Total Non-Billable Hours</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="avgHoursPerDay">-</div>
+      <div class="stat-label">Average Hours per Day</div>
+    </div>
   </div>
   
   <div style="height: 400px;">
@@ -113,17 +123,26 @@
           return billableMatch && userMatch && projectMatch;
         });
 
-        // Calculate hours
+        // Calculate hours and dates
         const hours = {};
+        const dailyHours = {};
         filtered.forEach(r => {
           const project = r.Project || 'Unknown';
-          hours[project] = (hours[project] || 0) + (r.Duration_decimal_ || 0);
+          const date = r.Start_Date?.split('T')[0] || 'Unknown';
+          const duration = r.Duration_decimal_ || 0;
+          
+          hours[project] = (hours[project] || 0) + duration;
+          dailyHours[date] = (dailyHours[date] || 0) + duration;
         });
 
         const chartData = Object.entries(hours).sort((a, b) => b[1] - a[1]);
         const total = Object.values(hours).reduce((a, b) => a + b, 0);
+        const uniqueDays = Object.keys(dailyHours).length;
+        const avgPerDay = uniqueDays ? (total / uniqueDays) : 0;
 
+        // Update statistics
         document.getElementById('totalHours').textContent = total.toFixed(1);
+        document.getElementById('avgHoursPerDay').textContent = avgPerDay.toFixed(1);
 
         // Create chart
         const ctx = document.getElementById('projectChart').getContext('2d');
@@ -154,7 +173,8 @@
         log({ 
           status: 'Chart updated', 
           filteredRecords: filtered.length,
-          totalHours: total
+          totalHours: total,
+          avgHoursPerDay: avgPerDay
         });
       } catch (err) {
         log({ error: err.message });
