@@ -14,37 +14,117 @@
       font-family: monospace;
       white-space: pre-wrap;
     }
+    .chart-wrapper {
+      height: 400px;
+      margin: 20px 0;
+    }
+    .summary {
+      margin: 20px 0;
+      font-size: 16px;
+    }
   </style>
 </head>
 <body>
   <div id="debug">Loading...</div>
+  <div class="summary">
+    Total Non-Billable Hours: <span id="totalHours">-</span>
+  </div>
+  <div class="chart-wrapper">
+    <canvas id="projectChart"></canvas>
+  </div>
 
   <script>
+    let chart = null;
+
     function log(message, data) {
       const debugDiv = document.getElementById('debug');
       debugDiv.innerHTML = `${new Date().toISOString()}: ${message}\n${JSON.stringify(data, null, 2)}`;
       console.log(message, data);
     }
 
+    function createChart(records) {
+      // Filter non-billable records
+      const nonBillable = records.filter(r => r.Billable === 'No');
+      
+      // Calculate project totals
+      const projectHours = {};
+      nonBillable.forEach(record => {
+        const project = record.Project || 'Unknown';
+        // Use the correct field name with underscores
+        const hours = record.Duration_decimal_ || 0;
+        projectHours[project] = (projectHours[project] || 0) + hours;
+      });
+
+      // Convert to array and sort by hours
+      const chartData = Object.entries(projectHours)
+        .sort((a, b) => b[1] - a[1]);
+
+      const totalHours = Object.values(projectHours).reduce((a, b) => a + b, 0);
+      document.getElementById('totalHours').textContent = totalHours.toFixed(1);
+
+      log('Project hours calculated', {
+        projects: Object.keys(projectHours).length,
+        totalHours,
+        sampleData: chartData.slice(0, 3)
+      });
+
+      // Create/update chart
+      const ctx = document.getElementById('projectChart').getContext('2d');
+      
+      if (chart) {
+        chart.destroy();
+      }
+
+      chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: chartData.map(([project]) => project),
+          datasets: [{
+            label: 'Non-Billable Hours',
+            data: chartData.map(([, hours]) => hours),
+            backgroundColor: '#4CAF50'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          plugins: {
+            title: {
+              display: true,
+              text: 'Non-Billable Hours by Project'
+            },
+            legend: {
+              display: false
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Hours'
+              }
+            }
+          }
+        }
+      });
+    }
+
     // Initialize Grist
-    grist.ready();
+    grist.ready({
+      requiredHeight: 600
+    });
 
     // Handle data
     grist.onRecords(records => {
-      // Look at the first few records in detail
-      const sample = records.slice(0, 3).map(record => ({
-        project: record.Project,
-        billable: record.Billable,
-        duration: record['Duration (decimal)'],
-        durationType: typeof record['Duration (decimal)'],
-        allFields: Object.keys(record)
-      }));
-
-      log('Detailed record analysis', {
-        totalRecords: records.length,
-        sample,
-        firstRecordFull: records[0]
+      log('Received records', {
+        count: records.length,
+        sampleDuration: records[0]?.Duration_decimal_
       });
+      
+      if (records && records.length > 0) {
+        createChart(records);
+      }
     });
   </script>
 </body>
