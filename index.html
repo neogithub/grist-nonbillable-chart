@@ -128,7 +128,8 @@
         const dailyHours = {};
         filtered.forEach(r => {
           const project = r.Project || 'Unknown';
-          const date = r.Start_Date?.split('T')[0] || 'Unknown';
+          // Using Start_Date directly as it's already a date string
+          const date = r.Start_Date || 'Unknown';
           const duration = r.Duration_decimal_ || 0;
           
           hours[project] = (hours[project] || 0) + duration;
@@ -174,7 +175,8 @@
           status: 'Chart updated', 
           filteredRecords: filtered.length,
           totalHours: total,
-          avgHoursPerDay: avgPerDay
+          avgHoursPerDay: avgPerDay,
+          uniqueDays
         });
       } catch (err) {
         log({ error: err.message });
