@@ -19,10 +19,30 @@
     .filters {
       margin-bottom: 10px;
     }
-    select { 
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    select, button { 
       margin: 5px;
-      padding: 4px;
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+    select {
       min-width: 120px;
+    }
+    button {
+      background: #f0f0f0;
+      cursor: pointer;
+      padding: 8px 16px;
+    }
+    button.active {
+      background: #4CAF50;
+      color: white;
+      border-color: #4CAF50;
     }
     .stats {
       display: flex;
@@ -52,13 +72,19 @@
 <body>
   <div class="debug" id="debugOutput"></div>
 
-  <div class="filters">
-    <select id="userFilter">
-      <option value="all">All Users</option>
-    </select>
-    <select id="projectFilter">
-      <option value="all">All Projects</option>
-    </select>
+  <div class="controls">
+    <div class="filters">
+      <select id="userFilter">
+        <option value="all">All Users</option>
+      </select>
+      <select id="projectFilter">
+        <option value="all">All Projects</option>
+      </select>
+    </div>
+    <div>
+      <button id="barChart" class="active">Bar Chart</button>
+      <button id="donutChart">Donut Chart</button>
+    </div>
   </div>
 
   <div class="stats">
@@ -85,6 +111,7 @@
     let currentRecords = [];
     let currentUser = 'all';
     let currentProject = 'all';
+    let chartType = 'bar';
 
     function log(msg) {
       const debug = document.getElementById('debugOutput');
@@ -155,30 +182,51 @@
         const ctx = document.getElementById('projectChart').getContext('2d');
         if (chart) chart.destroy();
 
+        const chartOptions = {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: 'Non-Billable Hours by Project'
+            },
+            legend: {
+              display: chartType === 'doughnut',
+              position: chartType === 'doughnut' ? 'right' : 'top'
+            }
+          }
+        };
+
+        if (chartType === 'bar') {
+          chartOptions.indexAxis = 'y';
+          chartOptions.scales = {
+            x: {
+              title: {
+                display: true,
+                text: 'Hours'
+              }
+            }
+          };
+        }
+
         chart = new Chart(ctx, {
-          type: 'bar',
+          type: chartType === 'bar' ? 'bar' : 'doughnut',
           data: {
             labels: chartData.map(([project]) => project),
             datasets: [{
               data: chartData.map(([, hours]) => hours),
-              backgroundColor: '#4CAF50'
+              backgroundColor: chartType === 'bar' ? '#4CAF50' : [
+                '#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0',
+                '#795548', '#607D8B', '#E91E63', '#9E9E9E', '#CDDC39'
+              ]
             }]
           },
-          options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              title: {
-                display: true,
-                text: 'Non-Billable Hours by Project'
-              }
-            }
-          }
+          options: chartOptions
         });
 
         log({ 
-          status: 'Chart updated', 
+          status: 'Chart updated',
+          chartType,
           filteredRecords: filtered.length,
           totalHours: total,
           avgHoursPerDay: avgPerDay,
@@ -203,6 +251,21 @@
 
     document.getElementById('projectFilter').addEventListener('change', (e) => {
       currentProject = e.target.value;
+      createChart(currentRecords);
+    });
+
+    // Set up chart type toggles
+    document.getElementById('barChart').addEventListener('click', (e) => {
+      chartType = 'bar';
+      document.getElementById('barChart').classList.add('active');
+      document.getElementById('donutChart').classList.remove('active');
+      createChart(currentRecords);
+    });
+
+    document.getElementById('donutChart').addEventListener('click', (e) => {
+      chartType = 'doughnut';
+      document.getElementById('donutChart').classList.add('active');
+      document.getElementById('barChart').classList.remove('active');
       createChart(currentRecords);
     });
 
