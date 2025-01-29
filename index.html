@@ -6,19 +6,48 @@
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
   <style>
-    body { padding: 16px; }
+    body { 
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segue UI', Roboto, sans-serif;
+    }
     .chart-wrapper {
       height: 400px;
       margin: 20px 0;
     }
     .filters {
       margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     select {
       margin: 5px;
       padding: 8px;
       border-radius: 4px;
+      border: 1px solid #ccc;
       min-width: 120px;
+    }
+    .summary-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+      padding: 10px;
+      background: #f5f5f5;
+      border-radius: 4px;
+    }
+    .stat-item {
+      padding: 10px;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #4CAF50;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: #666;
+      margin-top: 5px;
     }
   </style>
 </head>
@@ -30,10 +59,24 @@
     <select id="projectFilter">
       <option value="all">All Projects</option>
     </select>
+    <select id="taskFilter">
+      <option value="all">All Tasks</option>
+    </select>
   </div>
 
-  <div>
-    Total Non-Billable Hours: <span id="totalHours">-</span>
+  <div class="summary-stats">
+    <div class="stat-item">
+      <div class="stat-value" id="totalHours">-</div>
+      <div class="stat-label">Total Non-Billable Hours</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="avgHoursPerDay">-</div>
+      <div class="stat-label">Avg Hours/Day</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="topProject">-</div>
+      <div class="stat-label">Top Project</div>
+    </div>
   </div>
   
   <div class="chart-wrapper">
@@ -45,6 +88,7 @@
     let currentRecords = [];
     let currentUser = 'all';
     let currentProject = 'all';
+    let currentTask = 'all';
 
     function createChart(records) {
       // Filter records
@@ -52,24 +96,37 @@
         const billableMatch = r.Billable === 'No';
         const userMatch = currentUser === 'all' || r.User === currentUser;
         const projectMatch = currentProject === 'all' || r.Project === currentProject;
-        return billableMatch && userMatch && projectMatch;
+        const taskMatch = currentTask === 'all' || r.Task === currentTask;
+        return billableMatch && userMatch && projectMatch && taskMatch;
       });
       
       // Calculate project totals
       const projectHours = {};
+      const dailyHours = {};
       filteredRecords.forEach(record => {
         const project = record.Project || 'Unknown';
+        const date = record.Start_Date?.split('T')[0] || 'Unknown';
         const hours = record.Duration_decimal_ || 0;
         projectHours[project] = (projectHours[project] || 0) + hours;
+        dailyHours[date] = (dailyHours[date] || 0) + hours;
       });
+
+      // Calculate summary statistics
+      const totalHours = Object.values(projectHours).reduce((a, b) => a + b, 0);
+      const uniqueDays = Object.keys(dailyHours).length;
+      const avgHoursPerDay = uniqueDays ? totalHours / uniqueDays : 0;
+      const topProject = Object.entries(projectHours)
+        .sort((a, b) => b[1] - a[1])[0];
+
+      // Update summary statistics
+      document.getElementById('totalHours').textContent = totalHours.toFixed(1);
+      document.getElementById('avgHoursPerDay').textContent = avgHoursPerDay.toFixed(1);
+      document.getElementById('topProject').textContent = 
+        topProject ? `${topProject[0]}` : '-';
 
       // Convert to array and sort by hours
       const chartData = Object.entries(projectHours)
         .sort((a, b) => b[1] - a[1]);
-
-      // Update total hours
-      const totalHours = Object.values(projectHours).reduce((a, b) => a + b, 0);
-      document.getElementById('totalHours').textContent = totalHours.toFixed(1);
 
       // Create/update chart
       const ctx = document.getElementById('projectChart').getContext('2d');
@@ -116,15 +173,19 @@
     function updateFilters(records) {
       const users = [...new Set(records.map(r => r.User))].sort();
       const projects = [...new Set(records.map(r => r.Project))].sort();
+      const tasks = [...new Set(records.map(r => r.Task))].sort();
       
       const userFilter = document.getElementById('userFilter');
       const projectFilter = document.getElementById('projectFilter');
+      const taskFilter = document.getElementById('taskFilter');
       
       userFilter.innerHTML = '<option value="all">All Users</option>';
       projectFilter.innerHTML = '<option value="all">All Projects</option>';
+      taskFilter.innerHTML = '<option value="all">All Tasks</option>';
       
       users.forEach(user => userFilter.add(new Option(user, user)));
       projects.forEach(project => projectFilter.add(new Option(project, project)));
+      tasks.forEach(task => taskFilter.add(new Option(task, task)));
     }
 
     // Initialize Grist
@@ -140,6 +201,11 @@
 
     document.getElementById('projectFilter').addEventListener('change', (e) => {
       currentProject = e.target.value;
+      createChart(currentRecords);
+    });
+
+    document.getElementById('taskFilter').addEventListener('change', (e) => {
+      currentTask = e.target.value;
       createChart(currentRecords);
     });
 
