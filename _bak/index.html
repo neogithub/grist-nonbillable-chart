@@ -111,31 +111,6 @@
       border-radius: 4px;
       padding: 15px;
     }
-    .detail-panel {
-      margin-top: 20px;
-      background: white;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
-      padding: 15px;
-      grid-column: 1 / -1;
-      display: none;
-    }
-    .detail-panel h3 {
-      margin-top: 0;
-      color: #2196F3;
-    }
-    .detail-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    .detail-table th, .detail-table td {
-      padding: 8px;
-      text-align: left;
-      border-bottom: 1px solid #e0e0e0;
-    }
-    .detail-table th {
-      background-color: #f5f5f5;
-    }
   </style>
 </head>
 <body>
@@ -203,21 +178,6 @@
     </div>
     <div class="chart-wrapper">
       <canvas id="taskChart"></canvas>
-    </div>
-    <div id="detailPanel" class="detail-panel">
-      <h3 id="detailTitle">Task Details</h3>
-      <table class="detail-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>User</th>
-            <th>Duration</th>
-            <th>Description</th>
-          </tr>
-        </thead>
-        <tbody id="detailTableBody">
-        </tbody>
-      </table>
     </div>
   </div>
 
@@ -419,13 +379,6 @@
                 text: currentProject === 'all' ? 
                   'Task Breakdown (All Projects)' : 
                   `Task Breakdown: ${currentProject}`
-              },
-              tooltip: {
-                callbacks: {
-                  label: function(context) {
-                    return `${context.formattedValue} hours (click for details)`;
-                  }
-                }
               }
             },
             scales: {
@@ -434,13 +387,6 @@
                   display: true,
                   text: 'Hours'
                 }
-              }
-            },
-            onClick: function(e, elements) {
-              if (elements.length > 0) {
-                const index = elements[0].index;
-                const task = taskData[index][0];
-                showTaskDetails(task);
               }
             }
           }
@@ -539,60 +485,6 @@
     });
 
     // Handle data
-    // Show task detail breakdown
-    function showTaskDetails(task) {
-      const detailPanel = document.getElementById('detailPanel');
-      const detailTitle = document.getElementById('detailTitle');
-      const detailTableBody = document.getElementById('detailTableBody');
-      
-      // Update title
-      detailTitle.textContent = `Task Details: ${task}`;
-      
-      // Clear previous data
-      detailTableBody.innerHTML = '';
-      
-      // Filter records for the selected task
-      const taskRecords = currentRecords.filter(r => {
-        const isTask = groupTasks ? getTaskCategory(r.Task) === task : r.Task === task;
-        const groupMatch = currentGroup === 'all' || r.Group === currentGroup;
-        const userMatch = currentUser === 'all' || r.User === currentUser;
-        const projectMatch = currentProject === 'all' || r.Project === currentProject;
-        const billableMatch = r.Billable === 'No';
-        const dateMatch = filterByDateRange([r]).length > 0;
-        
-        return isTask && groupMatch && userMatch && projectMatch && billableMatch && dateMatch;
-      });
-      
-      // Sort by date
-      taskRecords.sort((a, b) => new Date(b.Start_Date) - new Date(a.Start_Date));
-      
-      // Create table rows
-      taskRecords.forEach(record => {
-        const row = document.createElement('tr');
-        
-        // Format date
-        const date = record.Start_Date ? new Date(record.Start_Date).toLocaleDateString() : 'N/A';
-        
-        // Add cells
-        row.innerHTML = `
-          <td>${date}</td>
-          <td>${record.User || 'N/A'}</td>
-          <td>${(record.Duration_decimal_ || 0).toFixed(1)}h</td>
-          <td>${record.Description || 'N/A'}</td>
-        `;
-        
-        detailTableBody.appendChild(row);
-      });
-      
-      // Show the panel
-      detailPanel.style.display = 'block';
-      
-      // Scroll to detail panel
-      detailPanel.scrollIntoView({ behavior: 'smooth' });
-      
-      log({ event: 'showing details', task, records: taskRecords.length });
-    }
-
     grist.onRecords(records => {
       log({ event: 'received records', count: records.length });
       currentRecords = records;
