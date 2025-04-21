@@ -135,29 +135,6 @@
     }
     .detail-table th {
       background-color: #f5f5f5;
-      position: sticky;
-      top: 0;
-      cursor: pointer;
-      user-select: none;
-    }
-    .detail-table th:hover {
-      background-color: #e0e0e0;
-    }
-    .detail-table th::after {
-      content: "";
-      margin-left: 5px;
-    }
-    .detail-table th.sort-asc::after {
-      content: "▲";
-      font-size: 0.8em;
-    }
-    .detail-table th.sort-desc::after {
-      content: "▼";
-      font-size: 0.8em;
-    }
-    .detail-panel {
-      max-height: 600px;
-      overflow-y: auto;
     }
   </style>
 </head>
@@ -232,9 +209,9 @@
       <table class="detail-table">
         <thead>
           <tr>
-            <th data-sort="date" class="sort-desc">Date</th>
-            <th data-sort="user">User</th>
-            <th data-sort="duration" class="sort-desc">Duration</th>
+            <th>Date</th>
+            <th>User</th>
+            <th>Duration</th>
             <th>Description</th>
           </tr>
         </thead>
@@ -563,46 +540,34 @@
 
     // Handle data
     // Show task detail breakdown
-    // Global variables for sorting
-    let currentDetailRecords = [];
-    let currentSortColumn = 'duration';
-    let currentSortDirection = 'desc';
-    
-    // Sort records based on current sort settings
-    function sortDetailRecords() {
-      return [...currentDetailRecords].sort((a, b) => {
-        let valueA, valueB;
-        
-        if (currentSortColumn === 'date') {
-          valueA = new Date(a.Start_Date || 0);
-          valueB = new Date(b.Start_Date || 0);
-        } else if (currentSortColumn === 'user') {
-          valueA = a.User || '';
-          valueB = b.User || '';
-          return currentSortDirection === 'asc' 
-            ? valueA.localeCompare(valueB) 
-            : valueB.localeCompare(valueA);
-        } else if (currentSortColumn === 'duration') {
-          valueA = a.Duration_decimal_ || 0;
-          valueB = b.Duration_decimal_ || 0;
-        }
-        
-        if (currentSortDirection === 'asc') {
-          return valueA - valueB;
-        } else {
-          return valueB - valueA;
-        }
-      });
-    }
-    
-    // Render the detail table with sorted records
-    function renderDetailTable() {
+    function showTaskDetails(task) {
+      const detailPanel = document.getElementById('detailPanel');
+      const detailTitle = document.getElementById('detailTitle');
       const detailTableBody = document.getElementById('detailTableBody');
+      
+      // Update title
+      detailTitle.textContent = `Task Details: ${task}`;
+      
+      // Clear previous data
       detailTableBody.innerHTML = '';
       
-      const sortedRecords = sortDetailRecords();
+      // Filter records for the selected task
+      const taskRecords = currentRecords.filter(r => {
+        const isTask = groupTasks ? getTaskCategory(r.Task) === task : r.Task === task;
+        const groupMatch = currentGroup === 'all' || r.Group === currentGroup;
+        const userMatch = currentUser === 'all' || r.User === currentUser;
+        const projectMatch = currentProject === 'all' || r.Project === currentProject;
+        const billableMatch = r.Billable === 'No';
+        const dateMatch = filterByDateRange([r]).length > 0;
+        
+        return isTask && groupMatch && userMatch && projectMatch && billableMatch && dateMatch;
+      });
       
-      sortedRecords.forEach(record => {
+      // Sort by date
+      taskRecords.sort((a, b) => new Date(b.Start_Date) - new Date(a.Start_Date));
+      
+      // Create table rows
+      taskRecords.forEach(record => {
         const row = document.createElement('tr');
         
         // Format date
@@ -619,82 +584,13 @@
         detailTableBody.appendChild(row);
       });
       
-      // Update sort indicators on headers
-      const headers = document.querySelectorAll('.detail-table th[data-sort]');
-      headers.forEach(header => {
-        const sortCol = header.getAttribute('data-sort');
-        header.classList.remove('sort-asc', 'sort-desc');
-        
-        if (sortCol === currentSortColumn) {
-          header.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
-        }
-      });
-    }
-    
-    // Initialize table sorting
-    function initializeTableSorting() {
-      const headers = document.querySelectorAll('.detail-table th[data-sort]');
-      
-      headers.forEach(header => {
-        header.addEventListener('click', () => {
-          const sortCol = header.getAttribute('data-sort');
-          
-          // If clicking the same column, toggle direction
-          if (sortCol === currentSortColumn) {
-            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
-          } else {
-            // New column, set as default direction (desc)
-            currentSortColumn = sortCol;
-            currentSortDirection = 'desc';
-          }
-          
-          renderDetailTable();
-        });
-      });
-    }
-    
-    // Initialize sorting once the DOM is loaded
-    document.addEventListener('DOMContentLoaded', initializeTableSorting);
-    
-    function showTaskDetails(task) {
-      const detailPanel = document.getElementById('detailPanel');
-      const detailTitle = document.getElementById('detailTitle');
-      
-      // Update title
-      detailTitle.textContent = `Task Details: ${task}`;
-      
-      // Filter records for the selected task
-      currentDetailRecords = currentRecords.filter(r => {
-        const isTask = groupTasks ? getTaskCategory(r.Task) === task : r.Task === task;
-        const groupMatch = currentGroup === 'all' || r.Group === currentGroup;
-        const userMatch = currentUser === 'all' || r.User === currentUser;
-        const projectMatch = currentProject === 'all' || r.Project === currentProject;
-        const billableMatch = r.Billable === 'No';
-        const dateMatch = filterByDateRange([r]).length > 0;
-        
-        return isTask && groupMatch && userMatch && projectMatch && billableMatch && dateMatch;
-      });
-      
-      // Default sort by duration descending
-      currentSortColumn = 'duration';
-      currentSortDirection = 'desc';
-      
-      // Render the sorted table
-      renderDetailTable();
-      
       // Show the panel
       detailPanel.style.display = 'block';
       
       // Scroll to detail panel
       detailPanel.scrollIntoView({ behavior: 'smooth' });
       
-      log({ 
-        event: 'showing details', 
-        task, 
-        records: currentDetailRecords.length,
-        sortBy: currentSortColumn,
-        sortDirection: currentSortDirection
-      });
+      log({ event: 'showing details', task, records: taskRecords.length });
     }
 
     grist.onRecords(records => {
