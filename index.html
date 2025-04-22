@@ -660,9 +660,6 @@
       const detailPanel = document.getElementById('detailPanel');
       const detailTitle = document.getElementById('detailTitle');
       
-      // Update title
-      detailTitle.textContent = `Task Details: ${task}`;
-      
       // Filter records for the selected task
       currentDetailRecords = currentRecords.filter(r => {
         const isTask = groupTasks ? getTaskCategory(r.Task) === task : r.Task === task;
@@ -674,6 +671,12 @@
         
         return isTask && groupMatch && userMatch && projectMatch && billableMatch && dateMatch;
       });
+      
+      // Calculate total hours
+      const totalHours = currentDetailRecords.reduce((sum, record) => sum + (record.Duration_decimal_ || 0), 0);
+      
+      // Update title with total hours
+      detailTitle.textContent = `Task Details: ${task} (${totalHours.toFixed(2)} hours)`;
       
       // Default sort by duration descending
       currentSortColumn = 'duration';
