@@ -162,7 +162,7 @@
   </style>
 </head>
 <body>
-  <div class="debug" id="debugOutput" style="display: none;"></div>
+  <div class="debug" id="debugOutput"></div>
 
   <div class="controls">
     <div class="control-group">
@@ -189,10 +189,6 @@
       <div class="task-group-toggle">
         <input type="checkbox" id="groupTasks">
         <label for="groupTasks">Group Similar Tasks</label>
-      </div>
-      <div class="task-group-toggle">
-        <input type="checkbox" id="toggleDebug">
-        <label for="toggleDebug">Show Debug</label>
       </div>
     </div>
   </div>
@@ -549,11 +545,6 @@
     document.getElementById('groupTasks').addEventListener('change', (e) => {
       groupTasks = e.target.checked;
       createCharts(currentRecords);
-    });
-    
-    document.getElementById('toggleDebug').addEventListener('change', (e) => {
-      const debugOutput = document.getElementById('debugOutput');
-      debugOutput.style.display = e.target.checked ? 'block' : 'none';
     });
 
     document.getElementById('barChart').addEventListener('click', (e) => {
