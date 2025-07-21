@@ -229,16 +229,41 @@
           }
         });
 
-        // Calculate PTO/Holiday/Meeting hours from ALL non-billable records (not just filtered)
-        const allNonBillable = filterByDateRange(records).filter(r => r.Billable === 'No');
+        // Calculate PTO/Holiday/Meeting hours from filtered records (respecting group/user/project filters)
         let ptoHours = 0;
         let holidayHours = 0;
         let meetingHours = 0;
         
-        allNonBillable.forEach(r => {
-          if (r.Task === 'PTO') ptoHours += r.Duration_decimal_ || 0;
-          if (r.Task === 'Holiday') holidayHours += r.Duration_decimal_ || 0;
-          if (meetingTasks.includes(r.Task)) meetingHours += r.Duration_decimal_ || 0;
+        // Debug: collect all unique task names to see what we're working with
+        const uniqueTasks = new Set();
+        
+        filtered.forEach(r => {
+          const task = r.Task || '';
+          uniqueTasks.add(task);
+          
+          // Check for PTO (case insensitive and partial match)
+          if (task.toLowerCase().includes('pto') || task.toLowerCase().includes('paid time off')) {
+            ptoHours += r.Duration_decimal_ || 0;
+          }
+          
+          // Check for Holiday (case insensitive and partial match)
+          if (task.toLowerCase().includes('holiday')) {
+            holidayHours += r.Duration_decimal_ || 0;
+          }
+          
+          // Meeting hours (exact match from array)
+          if (meetingTasks.includes(task)) {
+            meetingHours += r.Duration_decimal_ || 0;
+          }
+        });
+
+        // Log debug info
+        log({ 
+          uniqueTasks: Array.from(uniqueTasks).sort(),
+          ptoHours,
+          holidayHours,
+          meetingHours,
+          filteredRecordCount: filtered.length
         });
 
         const projectData = Object.entries(projectHours).sort((a, b) => b[1] - a[1]);
