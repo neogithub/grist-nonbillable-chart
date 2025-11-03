@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Non-Billable Time Analysis</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+</head>
+<body>
+  <div class="debug" id="debugOutput" style="display: none;"></div>
+
+  <div class="controls">
+    <div class="control-group">
+      <div class="group-radio-buttons">
+        <label><input type="radio" name="groupType" value="all" checked> All Groups</label>
+        <label><input type="radio" name="groupType" value="design"> Design</label>
+        <label><input type="radio" name="groupType" value="3d"> 3D</label>
+        <label><input type="radio" name="groupType" value="custom"> Custom:</label>
+      </div>
+      <select id="groupFilter">
+        <option value="all">All Groups</option>
+      </select>
+      <select id="userFilter">
+        <option value="all">All Users</option>
+      </select>
+      <select id="projectFilter">
+        <option value="all">All Projects</option>
+      </select>
+    </div>
+
+    <div class="date-range">
+      <input type="date" id="startDate">
+      <span>to</span>
+      <input type="date" id="endDate">
+    </div>
+
+    <div class="control-group">
+      <button id="barChart" class="active">Bar Chart</button>
+      <button id="donutChart">Donut Chart</button>
+      <div class="task-group-toggle">
+        <input type="checkbox" id="groupTasks">
+        <label for="groupTasks">Group Similar Tasks</label>
+      </div>
+      <div class="task-group-toggle">
+        <input type="checkbox" id="toggleDebug">
+        <label for="toggleDebug">Show Debug</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value" id="totalHours">-</div>
+      <div class="stat-label">Total Non-Billable Hours</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="avgHoursPerDay">-</div>
+      <div class="stat-label">Average Hours per Day</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="topProject">-</div>
+      <div class="stat-label">Top Non-Billable Project</div>
+    </div>
+    <div class="stat-card highlight">
+      <div class="stat-value" id="ptoHours">-</div>
+      <div class="stat-label">PTO Hours</div>
+    </div>
+    <div class="stat-card highlight">
+      <div class="stat-value" id="holidayHours">-</div>
+      <div class="stat-label">Holiday Hours</div>
+    </div>
+    <div class="stat-card highlight">
+      <div class="stat-value" id="meetingHours">-</div>
+      <div class="stat-label">Meeting Hours</div>
+    </div>
+  </div>
+  
+  <div class="chart-area">
+    <div class="chart-wrapper">
+      <canvas id="projectChart"></canvas>
+    </div>
+    <div class="chart-wrapper">
+      <canvas id="taskChart"></canvas>
+    </div>
+    <div id="detailPanel" class="detail-panel">
+      <h3 id="detailTitle">Task Details</h3>
+      <table class="detail-table">
+        <thead>
+          <tr>
+            <th data-sort="date" class="sort-desc">Date</th>
+            <th data-sort="user">User</th>
+            <th data-sort="duration" class="sort-desc">Duration</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody id="detailTableBody">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let projectChart = null;
+    let taskChart = null;
+    let currentRecords = [];
+    let currentGroup = 'all';
+    let currentGroupType = 'all';
+    let currentUser = 'all';
+    let currentProject = 'all';
+    let chartType = 'bar';
+    let startDate = null;
+    let endDate = null;
+    let groupTasks = false;
+
+    // Meeting tasks for tracking
+    const meetingTasks = ['Internal Meetings', '1:1 Meetings & Prep', 'Staff Meeting / Town Hall'];
+
+    // Task categories for grouping
+    const taskCategories = {
+      'Meetings': ['Internal Meetings', '1:1 Meetings & Prep', 'Staff Meeting / Town Hall'],
+      'Administration': ['Admin', 'Miscellaneous'],
+      'Development': ['Professional Development', 'R&D'],
+      'Time Off': ['PTO', 'Holiday'],
+      'Travel': ['Internal Travel'],
+      'Sales': ['Sales Support']
+    };
+
+    function getTaskCategory(task) {
+      if (!groupTasks) return task;
+      
+      for (const [category, tasks] of Object.entries(taskCategories)) {
+        if (tasks.includes(task)) return category;
+      }
+      return task;
+    }
+
+    function filterByDateRange(records) {
+      if (!startDate && !endDate) return records;
+      
+      return records.filter(r => {
+        const recordDate = new Date(r.Start_Date);
+        const afterStart = !startDate || recordDate >= new Date(startDate);
+        const beforeEnd = !endDate || recordDate <= new Date(endDate);
+        return afterStart && beforeEnd;
+      });
+    }
+
+    function log(msg) {
+      const debug = document.getElementById('debugOutput');
+      if (debug) {
+        debug.textContent = JSON.stringify(msg, null, 2);
+      }
+      console.log(msg);
+    }
+
+    function updateFilters(records) {
+      try {
+        const groups = [...new Set(records.map(r => r.Group))].sort();
+        const users = [...new Set(records.map(r => r.User))].sort();
+        const projects = [...new Set(records.map(r => r.Project))].sort();
+
+        const groupFilter = document.getElementById('groupFilter');
+        const userFilter = document.getElementById('userFilter');
+        const projectFilter = document.getElementById('projectFilter');
+
+        groupFilter.innerHTML = '<option value="all">All Groups</option>';
+        userFilter.innerHTML = '<option value="all">All Users</option>';
+        projectFilter.innerHTML = '<option value="all">All Projects</option>';
+
+        groups.forEach(group => groupFilter.add(new Option(group, group)));
+        users.forEach(user => userFilter.add(new Option(user, user)));
+        projects.forEach(project => projectFilter.add(new Option(project, project)));
+      } catch (err) {
+        log({ error: 'Filter update failed', message: err.message });
+      }
+    }
+
+    function matchesGroupType(group, groupType) {
+      if (!group) return false;
+      
+      switch (groupType) {
+        case 'all':
+          return true;
+        case 'design':
+          return group.toLowerCase().includes('design');
+        case '3d':
+          return group.toLowerCase().includes('3d');
+        case 'custom':
+          return currentGroup === 'all' || group === currentGroup;
+        default:
+          return true;
+      }
+    }
+
+    function createCharts(records) {
+      try {
+        // Apply filters
+        records = filterByDateRange(records);
+        
+        const filtered = records.filter(r => {
+          const billableMatch = r.Billable === 'No';
+          const groupTypeMatch = matchesGroupType(r.Group, currentGroupType);
+          const userMatch = currentUser === 'all' || r.User === currentUser;
+          const projectMatch = currentProject === 'all' || r.Project === currentProject;
+          return billableMatch && groupTypeMatch && userMatch && projectMatch;
+        });
+
+        // Calculate hours
+        const projectHours = {};
+        const taskHours = {};
+        const dailyUserHours = {}; // Track hours per day per user
+        
+        filtered.forEach(r => {
+          const project = r.Project || 'Unknown';
+          const task = getTaskCategory(r.Task) || 'Unknown';
+          const date = r.Start_Date || 'Unknown';
+          const user = r.User || 'Unknown';
+          const duration = r.Duration_decimal_ || 0;
+          
+          projectHours[project] = (projectHours[project] || 0) + duration;
+          
+          // Track daily hours per user for proper average calculation
+          if (!dailyUserHours[date]) dailyUserHours[date] = {};
+          dailyUserHours[date][user] = (dailyUserHours[date][user] || 0) + duration;
+          
+          if (currentProject === 'all' || project === currentProject) {
+            taskHours[task] = (taskHours[task] || 0) + duration;
+          }
+        });
+
+        // Calculate PTO/Holiday/Meeting hours from filtered records (respecting group/user/project filters)
+        let ptoHours = 0;
+        let holidayHours = 0;
+        let meetingHours = 0;
+        
+        // Debug: collect all unique task names to see what we're working with
+        const uniqueTasks = new Set();
+        
+        filtered.forEach(r => {
+          const task = r.Task || '';
+          uniqueTasks.add(task);
+          
+          // Check for PTO (case insensitive and partial match)
+          if (task.toLowerCase().includes('pto') || task.toLowerCase().includes('paid time off')) {
+            ptoHours += r.Duration_decimal_ || 0;
+          }
+          
+          // Check for Holiday (case insensitive and partial match)
+          if (task.toLowerCase().includes('holiday')) {
+            holidayHours += r.Duration_decimal_ || 0;
+          }
+          
+          // Meeting hours (exact match from array)
+          if (meetingTasks.includes(task)) {
+            meetingHours += r.Duration_decimal_ || 0;
+          }
+        });
+
+        // Log debug info
+        log({ 
+          uniqueTasks: Array.from(uniqueTasks).sort(),
+          ptoHours,
+          holidayHours,
+          meetingHours,
+          filteredRecordCount: filtered.length
+        });
+
+        const projectData = Object.entries(projectHours).sort((a, b) => b[1] - a[1]);
+        const taskData = Object.entries(taskHours).sort((a, b) => b[1] - a[1]);
+        
+        const total = Object.values(projectHours).reduce((a, b) => a + b, 0);
+        
+        // Calculate proper average: total user-days with hours
+        let totalUserDays = 0;
+        Object.values(dailyUserHours).forEach(dayData => {
+          totalUserDays += Object.keys(dayData).length; // Count users who worked each day
+        });
+        
+        const avgPerDay = totalUserDays ? (total / totalUserDays) : 0;
+        const topProject = projectData[0] || ['None', 0];
+
+        // Update statistics
+        document.getElementById('totalHours').textContent = total.toFixed(1);
+        document.getElementById('avgHoursPerDay').textContent = avgPerDay.toFixed(1);
+        document.getElementById('topProject').textContent = `${topProject[0]} (${topProject[1].toFixed(1)}h)`;
+        document.getElementById('ptoHours').textContent = ptoHours.toFixed(1);
+        document.getElementById('holidayHours').textContent = holidayHours.toFixed(1);
+        document.getElementById('meetingHours').textContent = meetingHours.toFixed(1);
+
+        // Create project chart
+        const projectCtx = document.getElementById('projectChart').getContext('2d');
+        if (projectChart) projectChart.destroy();
+
+        projectChart = new Chart(projectCtx, {
+          type: chartType === 'bar' ? 'bar' : 'doughnut',
+          data: {
+            labels: projectData.map(([project]) => project),
+            datasets: [{
+              data: projectData.map(([, hours]) => hours),
+              backgroundColor: chartType === 'bar' ? '#4CAF50' : [
+                '#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0',
+                '#795548', '#607D8B', '#E91E63', '#9E9E9E', '#CDDC39'
+              ]
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: chartType === 'bar' ? 'y' : 'x',
+            plugins: {
+              title: {
+                display: true,
+                text: 'Non-Billable Hours by Project'
+              },
+              legend: {
+                display: chartType === 'doughnut',
+                position: chartType === 'doughnut' ? 'right' : 'top'
+              }
+            },
+            scales: chartType === 'bar' ? {
+              x: {
+                title: {
+                  display: true,
+                  text: 'Hours'
+                }
+              }
+            } : undefined
+          }
+        });
+
+        // Create task chart
+        const taskCtx = document.getElementById('taskChart').getContext('2d');
+        if (taskChart) taskChart.destroy();
+
+        taskChart = new Chart(taskCtx, {
+          type: 'bar',
+          data: {
+            labels: taskData.map(([task]) => task),
+            datasets: [{
+              data: taskData.map(([, hours]) => hours),
+              backgroundColor: '#2196F3'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            plugins: {
+              legend: {
+                display: false
+              },
+              title: {
+                display: true,
+                text: currentProject === 'all' ? 
+                  'Task Breakdown (All Projects)' : 
+                  `Task Breakdown: ${currentProject}`
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    return `${context.formattedValue} hours (click for details)`;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: 'Hours'
+                }
+              }
+            },
+            onClick: function(e, elements) {
+              if (elements.length > 0) {
+                const index = elements[0].index;
+                const task = taskData[index][0];
+                showTaskDetails(task);
+              }
+            }
+          }
+        });
+
+        log({ 
+          status: 'Charts updated',
+          dateRange: { start: startDate, end: endDate },
+          filteredRecords: filtered.length,
+          groupedTasks: groupTasks,
+          totalHours: total,
+          ptoHours,
+          holidayHours,
+          meetingHours
+        });
+      } catch (err) {
+        log({ error: err.message });
+      }
+    }
+
+    function initializeDateRange(records) {
+      const dates = records.map(r => r.Start_Date).filter(Boolean).sort();
+      if (dates.length) {
+        const firstDate = dates[0];
+        const lastDate = dates[dates.length - 1];
+        
+        const startInput = document.getElementById('startDate');
+        const endInput = document.getElementById('endDate');
+        
+        startInput.min = firstDate;
+        startInput.max = lastDate;
+        endInput.min = firstDate;
+        endInput.max = lastDate;
+
+        // Set initial range to last month
+        const endInitial = new Date(lastDate);
+        const startInitial = new Date(endInitial);
+        startInitial.setMonth(startInitial.getMonth() - 1);
+        
+        startDate = startInitial.toISOString().split('T')[0];
+        endDate = lastDate;
+        
+        startInput.value = startDate;
+        endInput.value = endDate;
+      }
+    }
+
+    // Initialize Grist
+    grist.ready({
+      requiredHeight: 800
+    });
+
+    // Set up filter listeners
+    document.querySelectorAll('input[name="groupType"]').forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        currentGroupType = e.target.value;
+        
+        // Enable/disable the group dropdown based on selection
+        const groupFilter = document.getElementById('groupFilter');
+        if (currentGroupType === 'custom') {
+          groupFilter.disabled = false;
+        } else {
+          groupFilter.disabled = true;
+          currentGroup = 'all'; // Reset to all when using radio buttons
+          groupFilter.value = 'all';
+        }
+        
+        createCharts(currentRecords);
+      });
+    });
+
+    document.getElementById('groupFilter').addEventListener('change', (e) => {
+      currentGroup = e.target.value;
+      createCharts(currentRecords);
+    });
+
+    document.getElementById('userFilter').addEventListener('change', (e) => {
+      currentUser = e.target.value;
+      createCharts(currentRecords);
+    });
+
+    document.getElementById('projectFilter').addEventListener('change', (e) => {
+      currentProject = e.target.value;
+      createCharts(currentRecords);
+    });
+
+    document.getElementById('startDate').addEventListener('change', (e) => {
+      startDate = e.target.value;
+      createCharts(currentRecords);
+    });
+
+    document.getElementById('endDate').addEventListener('change', (e) => {
+      endDate = e.target.value;
+      createCharts(currentRecords);
+    });
+
+    document.getElementById('groupTasks').addEventListener('change', (e) => {
+      groupTasks = e.target.checked;
+      createCharts(currentRecords);
+    });
+    
+    document.getElementById('toggleDebug').addEventListener('change', (e) => {
+      const debugOutput = document.getElementById('debugOutput');
+      debugOutput.style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    document.getElementById('barChart').addEventListener('click', (e) => {
+      chartType = 'bar';
+      document.getElementById('barChart').classList.add('active');
+      document.getElementById('donutChart').classList.remove('active');
+      createCharts(currentRecords);
+    });
+
+    document.getElementById('donutChart').addEventListener('click', (e) => {
+      chartType = 'doughnut';
+      document.getElementById('donutChart').classList.add('active');
+      document.getElementById('barChart').classList.remove('active');
+      createCharts(currentRecords);
+    });
+
+    // Handle data
+    // Show task detail breakdown
+    // Global variables for sorting
+    let currentDetailRecords = [];
+    let currentSortColumn = 'duration';
+    let currentSortDirection = 'desc';
+    
+    // Sort records based on current sort settings
+    function sortDetailRecords() {
+      return [...currentDetailRecords].sort((a, b) => {
+        let valueA, valueB;
+        
+        if (currentSortColumn === 'date') {
+          valueA = new Date(a.Start_Date || 0);
+          valueB = new Date(b.Start_Date || 0);
+        } else if (currentSortColumn === 'user') {
+          valueA = a.User || '';
+          valueB = b.User || '';
+          return currentSortDirection === 'asc' 
+            ? valueA.localeCompare(valueB) 
+            : valueB.localeCompare(valueA);
+        } else if (currentSortColumn === 'duration') {
+          valueA = a.Duration_decimal_ || 0;
+          valueB = b.Duration_decimal_ || 0;
+        }
+        
+        if (currentSortDirection === 'asc') {
+          return valueA - valueB;
+        } else {
+          return valueB - valueA;
+        }
+      });
+    }
+    
+    // Render the detail table with sorted records
+    function renderDetailTable() {
+      const detailTableBody = document.getElementById('detailTableBody');
+      detailTableBody.innerHTML = '';
+      
+      const sortedRecords = sortDetailRecords();
+      
+      sortedRecords.forEach(record => {
+        const row = document.createElement('tr');
+        
+        // Format date
+        const date = record.Start_Date ? new Date(record.Start_Date).toLocaleDateString() : 'N/A';
+        
+        // Add cells
+        row.innerHTML = `
+          <td>${date}</td>
+          <td>${record.User || 'N/A'}</td>
+          <td>${(record.Duration_decimal_ || 0).toFixed(1)}h</td>
+          <td>${record.Description || 'N/A'}</td>
+        `;
+        
+        detailTableBody.appendChild(row);
+      });
+      
+      // Update sort indicators on headers
+      const headers = document.querySelectorAll('.detail-table th[data-sort]');
+      headers.forEach(header => {
+        const sortCol = header.getAttribute('data-sort');
+        header.classList.remove('sort-asc', 'sort-desc');
+        
+        if (sortCol === currentSortColumn) {
+          header.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
+      });
+    }
+    
+    // Initialize table sorting
+    function initializeTableSorting() {
+      const headers = document.querySelectorAll('.detail-table th[data-sort]');
+      
+      headers.forEach(header => {
+        header.addEventListener('click', () => {
+          const sortCol = header.getAttribute('data-sort');
+          
+          // If clicking the same column, toggle direction
+          if (sortCol === currentSortColumn) {
+            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+          } else {
+            // New column, set as default direction (desc)
+            currentSortColumn = sortCol;
+            currentSortDirection = 'desc';
+          }
+          
+          renderDetailTable();
+        });
+      });
+    }
+    
+    // Initialize sorting once the DOM is loaded
+    document.addEventListener('DOMContentLoaded', initializeTableSorting);
+    
+    function showTaskDetails(task) {
+      const detailPanel = document.getElementById('detailPanel');
+      const detailTitle = document.getElementById('detailTitle');
+      
+      // Filter records for the selected task
+      currentDetailRecords = currentRecords.filter(r => {
+        const isTask = groupTasks ? getTaskCategory(r.Task) === task : r.Task === task;
+        const groupTypeMatch = matchesGroupType(r.Group, currentGroupType);
+        const userMatch = currentUser === 'all' || r.User === currentUser;
+        const projectMatch = currentProject === 'all' || r.Project === currentProject;
+        const billableMatch = r.Billable === 'No';
+        const dateMatch = filterByDateRange([r]).length > 0;
+        
+        return isTask && groupTypeMatch && userMatch && projectMatch && billableMatch && dateMatch;
+      });
+      
+      // Calculate total hours
+      const totalHours = currentDetailRecords.reduce((sum, record) => sum + (record.Duration_decimal_ || 0), 0);
+      
+      // Update title with total hours
+      detailTitle.textContent = `Task Details: ${task} (${totalHours.toFixed(2)} hours)`;
+      
+      // Default sort by duration descending
+      currentSortColumn = 'duration';
+      currentSortDirection = 'desc';
+      
+      // Render the sorted table
+      renderDetailTable();
+      
+      // Show the panel
+      detailPanel.style.display = 'block';
+      
+      // Scroll to detail panel
+      detailPanel.scrollIntoView({ behavior: 'smooth' });
+      
+      log({ 
+        event: 'showing details', 
+        task, 
+        records: currentDetailRecords.length,
+        sortBy: currentSortColumn,
+        sortDirection: currentSortDirection
+      });
+    }
+
+    grist.onRecords(records => {
+      log({ event: 'received records', count: records.length });
+      currentRecords = records;
+      initializeDateRange(records);
+      updateFilters(records);
+      
+      // Initialize group dropdown state based on default radio selection
+      const groupFilter = document.getElementById('groupFilter');
+      groupFilter.disabled = true; // Start disabled since 'all' is default
+      
+      createCharts(records);
+    });
+  </script>
+</body>
+</html>
