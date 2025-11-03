@@ -87,51 +87,10 @@ function filterByDateRange(records) {
 }
 
 
-// ===== Utility: Parse Groups =====
-// Parse comma-separated groups from records and return unique individual groups
-function parseGroups(records) {
-  const groupSet = new Set();
-  let exampleRawGroups = [];
-
-  records.forEach((r, idx) => {
-    if (r.Group) {
-      // Collect first 3 examples for debugging
-      if (idx < 3) {
-        exampleRawGroups.push(r.Group);
-      }
-
-      // Split by comma and trim whitespace
-      const groups = r.Group.split(',').map(g => g.trim()).filter(g => g.length > 0);
-      groups.forEach(g => groupSet.add(g));
-    }
-  });
-
-  const uniqueGroups = Array.from(groupSet).sort();
-
-  log('🏷️ Groups parsed', {
-    totalRecords: records.length,
-    uniqueGroups: uniqueGroups.length,
-    exampleRawGroups: exampleRawGroups,
-    sampleParsedGroups: uniqueGroups.slice(0, 10)
-  });
-
-  return uniqueGroups;
-}
-
-// Check if a record's groups contain the filter group
-function recordHasGroup(record, filterGroup) {
-  if (filterGroup === 'all') return true;
-  if (!record.Group) return false;
-
-  const groups = record.Group.split(',').map(g => g.trim());
-  return groups.includes(filterGroup);
-}
-
 // ===== Filter Management =====
 function updateFilters(records) {
   try {
-    // Parse individual groups from comma-separated values
-    const groups = parseGroups(records);
+    const groups = [...new Set(records.map(r => r.Group))].sort();
     const users = [...new Set(records.map(r => r.User))].sort();
     const projects = [...new Set(records.map(r => r.Project))].sort();
 
@@ -190,7 +149,7 @@ function createCharts(records) {
 
     const filtered = records.filter(r => {
       const billableMatch = r.Billable === 'No';
-      const groupMatch = recordHasGroup(r, currentGroup);
+      const groupMatch = currentGroup === 'all' || r.Group === currentGroup;
       const userMatch = currentUser === 'all' || r.User === currentUser;
       const projectMatch = currentProject === 'all' || r.Project === currentProject;
       return billableMatch && groupMatch && userMatch && projectMatch;
@@ -473,7 +432,7 @@ function showTaskDetails(task) {
   // Filter records for the selected task
   currentDetailRecords = currentRecords.filter(r => {
     const isTask = groupTasks ? getTaskCategory(r.Task) === task : r.Task === task;
-    const groupMatch = recordHasGroup(r, currentGroup);
+    const groupMatch = currentGroup === 'all' || r.Group === currentGroup;
     const userMatch = currentUser === 'all' || r.User === currentUser;
     const projectMatch = currentProject === 'all' || r.Project === currentProject;
     const billableMatch = r.Billable === 'No';
